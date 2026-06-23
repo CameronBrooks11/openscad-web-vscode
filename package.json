@@ -61,13 +61,15 @@
     "verify-viewer": "node ./scripts/verify-viewer-manifest.mjs",
     "pretest": "npm run compile && npm run lint",
     "test": "node ./out/test/runTest.js",
-    "check": "npm run format:check && npm run lint && npm run compile && npm run verify-viewer"
+    "check": "npm run format:check && npm run lint && npm run compile && npm run verify-viewer",
+    "package": "vsce package --no-dependencies -o openscad-web-vscode.vsix"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.0",
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
     "eslint": "^9.18.0",
     "mocha": "^10.8.2",
     "prettier": "^3.4.2",

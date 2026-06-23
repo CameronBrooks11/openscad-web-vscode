@@ -8,8 +8,11 @@ out/**/*.map
 **/.prettierrc.json
 **/.eslintrc*
 .gitignore
+.prettierignore
 justfile
 AGENTS.md
 .vscode-test/**
+scripts/**
+*.vsix
 
 # Keep: out/extension.js (+ deps), media/** (the vendored viewer + fixtures).
