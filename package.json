@@ -1,0 +1,77 @@
+{
+  "name": "openscad-web-vscode",
+  "displayName": "OpenSCAD Web Viewer",
+  "description": "Preview OpenSCAD geometry (OFF) in a VS Code webview, powered by the openscad-web standalone viewer.",
+  "version": "0.0.1",
+  "publisher": "cameronbrooks11",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "overrides": {
+    "serialize-javascript": ">=7.0.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CameronBrooks11/openscad-web-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Visualization"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "openscadWebViewer.showFixture",
+        "title": "OpenSCAD Viewer: Show Fixture Geometry"
+      },
+      {
+        "command": "openscadWebViewer.openOffFile",
+        "title": "OpenSCAD Viewer: Preview .off File"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "when": "resourceExtname == .off",
+          "command": "openscadWebViewer.openOffFile",
+          "group": "navigation@9"
+        }
+      ],
+      "editor/title": [
+        {
+          "when": "resourceExtname == .off",
+          "command": "openscadWebViewer.openOffFile",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "sync-viewer": "node ./scripts/sync-viewer.mjs",
+    "verify-viewer": "node ./scripts/verify-viewer-manifest.mjs",
+    "pretest": "npm run compile && npm run lint",
+    "test": "node ./out/test/runTest.js",
+    "check": "npm run format:check && npm run lint && npm run compile && npm run verify-viewer"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.4.1",
+    "eslint": "^9.18.0",
+    "mocha": "^10.8.2",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0"
+  }
+}

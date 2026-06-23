@@ -1,0 +1,15 @@
+.vscode/**
+.github/**
+src/**
+out/test/**
+out/**/*.map
+**/tsconfig.json
+**/eslint.config.mjs
+**/.prettierrc.json
+**/.eslintrc*
+.gitignore
+justfile
+AGENTS.md
+.vscode-test/**
+
+# Keep: out/extension.js (+ deps), media/** (the vendored viewer + fixtures).

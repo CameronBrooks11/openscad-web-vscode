@@ -1,0 +1,9 @@
+node_modules/
+out/
+*.vsix
+.DS_Store
+*.log
+
+# The vendored viewer artifact under media/viewer/ IS committed (pinned, verified
+# against its manifest) — do not ignore it.
+.vscode-test/
