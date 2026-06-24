@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ViewerPanel, type LoadOutcome } from './viewerPanel';
+import { SessionPanel, type BootOutcome } from './sessionPanel';
 import { readFixtureOff } from './viewerArtifact';
 import { NAMED_VIEWS, type NamedView } from './protocol';
 
@@ -10,6 +11,9 @@ export interface ExtensionApi {
   showOff(offText: string, title: string): Promise<LoadOutcome>;
   /** Apply a fit-aware named camera view; resolves true once acked. */
   setView(view: NamedView): Promise<boolean>;
+  /** Boot the compile-capable session webview and await its L1 `ready` handshake
+   *  (P2). Compiling a project over the session is wired in P3. */
+  bootSession(): Promise<BootOutcome>;
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -45,7 +49,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     vscode.window.onDidChangeActiveColorTheme(() => ViewerPanel.applyTheme()),
   );
 
-  return { showFixture, showOff, setView: (view) => ViewerPanel.applyNamedView(view) };
+  return {
+    showFixture,
+    showOff,
+    setView: (view) => ViewerPanel.applyNamedView(view),
+    bootSession: () => SessionPanel.boot(context),
+  };
 }
 
 export function deactivate(): void {
