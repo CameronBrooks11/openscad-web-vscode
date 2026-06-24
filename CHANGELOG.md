@@ -24,3 +24,6 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   theme, and the last camera on every `ready` (incl. reveal-after-hidden).
 - The scene background tracks the active VS Code theme (light / dark / high
   contrast) and updates live on theme change.
+- Command _Set Camera View_ — a quick-pick of fit-aware named camera presets
+  (Diagonal / Front / Right / Back / Left / Top / Bottom) via the L0
+  `setNamedView` message, gated on the viewer advertising the capability.

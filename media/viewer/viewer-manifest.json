@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "viewerVersion": "0.1.0",
+  "viewerVersion": "0.2.0",
   "protocolVersion": 1,
-  "sourceCommit": "6417978cee38b15734a62b1b6e66f827ac19e98f",
-  "builtAt": "2026-06-23T23:25:14.605Z",
+  "sourceCommit": "894af4ba512ef07843382d3aac84f89ccc1e6ba6",
+  "builtAt": "2026-06-24T01:42:27.644Z",
   "files": {
     "assets/three-BsxU8lu2.js": {
       "bytes": 533975,
       "sha256": "1889f49561d3f11727f2ef3c501e119e7c0f494cbdd178a53c363c2b02a3cf70"
     },
-    "assets/viewer-DMEcUz63.js": {
-      "bytes": 36708,
-      "sha256": "98675ef656fb47a73485f33b405f7a543c718b4db5ae0a7d0801bffcea95e88a"
+    "assets/viewer-CzXBxu2e.js": {
+      "bytes": 37149,
+      "sha256": "fed2a87ca84b75071a5cfe47bd8acb285e796b07f50af189f2a0180ff0503daa"
     },
     "protocol/envelope.d.ts": {
       "bytes": 1560,
@@ -30,16 +30,16 @@
       "sha256": "40e49ff46ef84fab5ccc52f8c683da259532bad8ad405c3457fd6f24932fdf1f"
     },
     "protocol/viewer-transport.d.ts": {
-      "bytes": 2328,
-      "sha256": "64937077c2f676aa52940702b0e22d016b8a77b6c20901821923e20427f8afbe"
+      "bytes": 3047,
+      "sha256": "bc9de920ee3d1e3ac840bb0afa3d4b7b5d70a12f0a95da6b7e7ac6af4b0f3dc5"
     },
     "protocol/viewer-transport.js": {
-      "bytes": 6823,
-      "sha256": "e34c82665610778eb3b12f353bafa63157105425f0bb861f004ec63f2f04d74a"
+      "bytes": 7745,
+      "sha256": "6f346ba7626196dd26725286f62eaf3576ed61ff5adcfe0038b0e9f6de12aa5e"
     },
     "viewer.html": {
       "bytes": 876,
-      "sha256": "91909c523b723de9acb3060f21059a1dd6f5d11c29424b5a92795ae3148511c6"
+      "sha256": "58a779b4783757800908116382734f367c6ca9ce1341538e020f257837290c59"
     }
   },
   "allowlist": [

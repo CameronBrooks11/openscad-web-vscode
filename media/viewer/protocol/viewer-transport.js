@@ -9,6 +9,22 @@ export const VIEWER_PROTOCOL_VERSION = 1;
 // OFF geometry text from a (trusted) host can be large; cap it as DoS hygiene.
 // Measured in UTF-16 code units.
 export const MAX_OFF_LENGTH = 64 * 1024 * 1024;
+/**
+ * Canonical fit-aware named views a host can request via `setNamedView`. Unlike
+ * `setCamera` (a raw pose), these frame the model to its bounds viewer-side, so a
+ * host need not know the geometry's scale. Mirrors the viewer's `NAMED_POSITIONS`
+ * names exactly (a viewer-side test guards against drift, since this layer must
+ * not import the viewer).
+ */
+export const VIEWER_NAMED_VIEWS = [
+    'Diagonal',
+    'Front',
+    'Right',
+    'Back',
+    'Left',
+    'Top',
+    'Bottom',
+];
 function readString(v) {
     return typeof v === 'string' ? v : undefined;
 }
@@ -110,6 +126,13 @@ export function validateViewerInbound(data) {
             }
             return { ok: true, message: { type: 'setCamera', camera, ...corr } };
         }
+        case 'setNamedView': {
+            if (typeof data.view !== 'string' ||
+                !VIEWER_NAMED_VIEWS.includes(data.view)) {
+                return { ok: false, code: 'invalid-payload', reason: 'unknown named view', opId };
+            }
+            return { ok: true, message: { type: 'setNamedView', view: data.view, ...corr } };
+        }
         case 'dispose':
             return { ok: true, message: { type: 'dispose', ...corr } };
         default:
@@ -147,4 +170,5 @@ function ack(type, opId) {
 export const viewerGeometrySet = (opId) => ack('geometry-set', opId);
 export const viewerSettingsSet = (opId) => ack('viewer-settings-set', opId);
 export const viewerCameraSet = (opId) => ack('camera-set', opId);
+export const viewerNamedViewSet = (opId) => ack('named-view-set', opId);
 export const viewerDisposed = (opId) => ack('disposed', opId);

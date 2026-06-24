@@ -52,5 +52,10 @@ describe('OpenSCAD Web Viewer — EDH smoke', () => {
       reuse.loaded || Boolean(reuse.error),
       'reused panel produced no terminal geometry outcome',
     );
+
+    // Camera preset: a fit-aware named view round-trips through the L0
+    // `setNamedView` message and is acked (no WebGL needed — it's a camera op).
+    const applied = await api.setView('Top');
+    assert.strictEqual(applied, true, 'setNamedView was not acked by the viewer');
   });
 });
