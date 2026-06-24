@@ -13,8 +13,15 @@ export function vscodeScadFs(root: vscode.Uri): ScadFs {
   const decoder = new TextDecoder();
   return {
     async readFile(absPath: string): Promise<string | undefined> {
+      const uri = root.with({ path: absPath });
+      // Prefer an open editor's content — including unsaved edits — so the preview
+      // reflects the live buffer, not the last saved bytes on disk.
+      const open = vscode.workspace.textDocuments.find(
+        (doc) => doc.uri.toString() === uri.toString(),
+      );
+      if (open) return open.getText();
       try {
-        return decoder.decode(await vscode.workspace.fs.readFile(root.with({ path: absPath })));
+        return decoder.decode(await vscode.workspace.fs.readFile(uri));
       } catch {
         return undefined; // not found / unreadable → treat as absent (library or typo)
       }

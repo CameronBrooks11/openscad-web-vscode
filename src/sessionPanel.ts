@@ -54,6 +54,8 @@ export interface CompileOutcome {
   diagnostics: Diagnostic[];
   /** The user closed the panel before any terminal outcome — not a failure. */
   closedByUser: boolean;
+  /** A newer compile superseded this one before it settled — not a failure. */
+  superseded: boolean;
 }
 
 const BOOT_TIMEOUT_MS = 60_000; // cold WASM + FS init is slower than the L0 viewer.
@@ -163,8 +165,9 @@ export class SessionPanel {
   ): Promise<CompileOutcome> {
     if (!boot.ready) return Promise.resolve(fromBoot(boot));
     this.currentProject = { files, entryPoint };
-    // Supersede any still-in-flight compile so its caller doesn't hang.
-    this.settleCompile({ error: 'superseded by a newer compile' });
+    // Supersede any still-in-flight compile so its caller doesn't hang — silently
+    // (supersession is a normal re-trigger, not a compile failure).
+    this.settleCompile({ superseded: true });
     return new Promise<CompileOutcome>((resolve) => {
       this.compileWaiter = {
         resolve,
@@ -175,6 +178,7 @@ export class SessionPanel {
           compiled: false,
           diagnostics: [],
           closedByUser: false,
+          superseded: false,
         },
         timer: setTimeout(
           () => this.settleCompile({ error: `compile timed out after ${COMPILE_TIMEOUT_MS}ms` }),
@@ -217,6 +221,12 @@ export class SessionPanel {
         // a preview (NOT a full render). Settle on the first terminal that produced
         // geometry (success + OFF artifact) or failed (error); a syntax error
         // settles via the preview error. Accumulate diagnostics for P4 throughout.
+        //
+        // Known limitation (P4): results are not correlated by `sourceRevision`, so
+        // a late result from a superseded compile can settle the current waiter. The
+        // session renders the correct (latest) geometry in-process regardless; only
+        // the host's coarse outcome toast can be momentarily off under rapid
+        // re-triggers. `OperationResult.{operationId,sourceRevision}` enable the fix.
         const w = this.compileWaiter;
         if (!w || w.settled) break;
         const r = msg.result;
@@ -257,6 +267,13 @@ export class SessionPanel {
       clearTimeout(w.timer);
       w.resolve(this.bootOutcome);
     }
+    // A failed boot (timeout / version skew / protocol error) caches a not-ready
+    // outcome that every later compile would reuse forever. Tear the panel down so
+    // the next command rebuilds a fresh one instead of being permanently bricked.
+    // (A user-closed panel is already disposing — don't re-enter.)
+    if (!this.bootOutcome.ready && !this.bootOutcome.closedByUser) {
+      this.panel.dispose();
+    }
   }
 
   /** Resolve the in-flight compile (if any) with its accumulated outcome, once. */
@@ -294,6 +311,7 @@ function fromBoot(boot: BootOutcome): CompileOutcome {
     error: boot.error,
     diagnostics: [],
     closedByUser: boot.closedByUser,
+    superseded: false,
   };
 }
 

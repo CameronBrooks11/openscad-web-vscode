@@ -41,8 +41,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }),
     vscode.commands.registerCommand('openscadWebViewer.previewScad', async (uri?: vscode.Uri) => {
       const entry = uri ?? vscode.window.activeTextEditor?.document.uri;
-      if (!entry) {
-        void vscode.window.showWarningMessage('Open or select a .scad file to preview.');
+      // Require a saved `.scad` on a real filesystem: the walker needs a workspace
+      // root + readable paths, and `setProject` an entry it can find. (Guards a
+      // palette invocation over a non-.scad or untitled editor — which would
+      // otherwise walk arbitrary text and stall on a missing entry.)
+      if (!entry || entry.scheme !== 'file' || !entry.path.toLowerCase().endsWith('.scad')) {
+        void vscode.window.showWarningMessage('Open or select a saved .scad file to preview.');
         return;
       }
       // Closure root: the entry's workspace folder, else its own directory. The
@@ -56,9 +60,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         void vscode.window.showErrorMessage(`Could not resolve .scad imports: ${asMessage(e)}`);
         return;
       }
-      // Surface unpreviewable deps (escapes-root) as warnings; full diagnostics P4.
-      for (const issue of closure.issues) {
-        void vscode.window.showWarningMessage(`OpenSCAD: ${issue.message}`);
+      // Surface unpreviewable deps (escapes-root) as a single warning; details P4.
+      if (closure.issues.length > 0) {
+        const specs = [...new Set(closure.issues.map((i) => i.spec))].join(', ');
+        void vscode.window.showWarningMessage(
+          `OpenSCAD: ${closure.issues.length} import(s) can't be previewed (outside the project root): ${specs}`,
+        );
       }
       reportCompile(await SessionPanel.compile(context, closure.files, closure.entryPoint));
     }),
@@ -109,8 +116,8 @@ function report(outcome: LoadOutcome): void {
 }
 
 function reportCompile(outcome: CompileOutcome): void {
-  if (outcome.closedByUser) {
-    return; // user dismissed the session panel before it settled — not an error.
+  if (outcome.closedByUser || outcome.superseded) {
+    return; // dismissed, or replaced by a newer preview — neither is a failure.
   }
   if (!outcome.ready) {
     // A failed/skewed boot carries its reason (incl. protocol-version mismatch).
