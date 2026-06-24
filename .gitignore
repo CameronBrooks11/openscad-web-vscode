@@ -4,6 +4,6 @@ out/
 .DS_Store
 *.log
 
-# The vendored viewer artifact under media/viewer/ IS committed (pinned, verified
-# against its manifest) — do not ignore it.
+# The vendored artifacts under media/viewer/ and media/session/ ARE committed
+# (pinned, verified against their manifests) — do not ignore them.
 .vscode-test/

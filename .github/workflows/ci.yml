@@ -36,5 +36,8 @@ jobs:
       - name: Verify vendored viewer artifact
         run: npm run verify-viewer
 
+      - name: Verify vendored session artifact
+        run: npm run verify-session
+
       - name: Extension smoke test (headless)
         run: xvfb-run -a npm test
