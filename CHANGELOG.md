@@ -15,3 +15,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - Vendored, hash-verified viewer artifact under `media/viewer/`, with
   `sync-viewer` / `verify-viewer` scripts.
 - Extension Development Host smoke test (message round-trip) and CI workflow.
+- `vsce` packaging (`npm run package`) producing a verified VSIX.
+
+### Changed
+
+- The viewer panel is now a single reusable instance: repeat opens reveal and
+  re-drive the same panel instead of spawning new ones, re-feeding geometry,
+  theme, and the last camera on every `ready` (incl. reveal-after-hidden).
+- The scene background tracks the active VS Code theme (light / dark / high
+  contrast) and updates live on theme change.

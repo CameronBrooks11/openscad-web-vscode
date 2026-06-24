@@ -1,16 +1,21 @@
-// The webview panel that hosts the standalone viewer and drives the L0 handshake.
+// The reusable webview panel that hosts the standalone viewer and drives the L0
+// handshake.
 //
-// Lifecycle (see openscad-web docs/EMBEDDING-VSCODE.md):
-//   1. load viewer.html (relative base rewritten to the webview resource root)
-//   2. wait for the viewer's `ready` — assert its protocolVersion == the pin
-//   3. push settings + geometry; resolve on `geometry-loaded` or `error`.
+// One panel is kept alive and reused: repeated opens reveal it and re-feed the
+// geometry rather than spawning new panels. The viewer is (re)fed its geometry,
+// theme, and last camera on every `ready` — which re-fires whenever VS Code
+// reloads the webview after it was hidden (retainContextWhenHidden is off).
+//
+// Handshake (see openscad-web docs/EMBEDDING-VSCODE.md): wait for `ready`, assert
+// its protocolVersion == the pin, then push settings + geometry; resolve the
+// per-load outcome on `geometry-loaded` or `error`.
 
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { readManifest, viewerDir } from './viewerArtifact';
-import { stampInbound, type ViewerInbound, type ViewerOutbound } from './protocol';
+import { stampInbound, type CameraPose, type ViewerInbound, type ViewerOutbound } from './protocol';
 
-/** The terminal result of pushing geometry — deliberately tolerant for headless CI. */
+/** The terminal result of a single load — deliberately tolerant for headless CI. */
 export interface LoadOutcome {
   /** The viewer signalled `ready`. */
   ready: boolean;
@@ -28,92 +33,214 @@ export interface LoadOutcome {
 
 const HANDSHAKE_TIMEOUT_MS = 30_000;
 
+interface Pending {
+  outcome: LoadOutcome;
+  resolve: (o: LoadOutcome) => void;
+  timer: ReturnType<typeof setTimeout>;
+  settled: boolean;
+}
+
 export class ViewerPanel {
-  /**
-   * Open a panel, push the given OFF geometry, and resolve once the viewer
-   * reports a terminal outcome (loaded / error / timeout / panel closed).
-   */
-  static async showOff(
+  private static current: ViewerPanel | undefined;
+
+  private readonly disposables: vscode.Disposable[] = [];
+  /** The viewer has signalled `ready` since the last (re)load of the webview. */
+  private live = false;
+  private loadCounter = 0;
+  private geometry?: { offText: string; opId: string };
+  /** offText the live viewer has actually rendered (`geometry-loaded`). */
+  private loadedOffText?: string;
+  /** offText last sent to the live viewer (it won't re-render an identical one). */
+  private pushedOffText?: string;
+  /** Last user camera, restored on a reveal-reload of the same geometry. */
+  private camera?: CameraPose;
+  private pending?: Pending;
+
+  private constructor(
+    private readonly panel: vscode.WebviewPanel,
+    private readonly expectedProtocolVersion: number,
+  ) {
+    this.disposables.push(
+      panel.webview.onDidReceiveMessage((m: ViewerOutbound) => this.onMessage(m)),
+      panel.onDidChangeViewState(() => {
+        // With retainContextWhenHidden:false, a hidden webview is torn down and
+        // VS Code reloads it (re-firing `ready`) on the next reveal. Mark not-live
+        // while hidden so a load() defers its push to that `ready`. If a reveal
+        // ever failed to reload, the per-load HANDSHAKE_TIMEOUT_MS is the backstop.
+        if (!panel.visible) this.live = false;
+      }),
+      panel.onDidDispose(() => this.onDispose()),
+    );
+  }
+
+  /** Open the viewer (creating the panel once) or reveal+re-drive the existing one. */
+  static show(
     context: vscode.ExtensionContext,
     offText: string,
     title: string,
   ): Promise<LoadOutcome> {
-    const dir = viewerDir(context.extensionUri);
-    const expectedProtocolVersion = readManifest(context.extensionUri).protocolVersion;
+    if (!ViewerPanel.current) {
+      const dir = viewerDir(context.extensionUri);
+      const expected = readManifest(context.extensionUri).protocolVersion;
+      const panel = vscode.window.createWebviewPanel(
+        'openscadWebViewer',
+        `OpenSCAD: ${title}`,
+        vscode.ViewColumn.Active,
+        { enableScripts: true, localResourceRoots: [dir], retainContextWhenHidden: false },
+      );
+      panel.webview.html = buildHtml(panel.webview, dir);
+      ViewerPanel.current = new ViewerPanel(panel, expected);
+    }
+    return ViewerPanel.current.load(offText, title);
+  }
 
-    const panel = vscode.window.createWebviewPanel(
-      'openscadWebViewer',
-      `OpenSCAD: ${title}`,
-      vscode.ViewColumn.Active,
-      {
-        enableScripts: true,
-        localResourceRoots: [dir],
-        // Geometry lives extension-side and is cheap to re-push, so we don't pay
-        // to keep the GL context alive while hidden. Re-push on reveal if needed.
-        retainContextWhenHidden: false,
-      },
-    );
+  /** Push the active VS Code theme to the live panel, if any. */
+  static applyTheme(): void {
+    ViewerPanel.current?.pushSettings();
+  }
 
-    panel.webview.html = buildHtml(panel.webview, dir);
+  private load(offText: string, title: string): Promise<LoadOutcome> {
+    // A new load supersedes any still-pending one.
+    this.settle();
 
-    return await new Promise<LoadOutcome>((resolve) => {
-      const outcome: LoadOutcome = {
-        ready: false,
-        protocolVersion: -1,
-        expectedProtocolVersion,
-        loaded: false,
-        closedByUser: false,
+    this.panel.title = `OpenSCAD: ${title}`;
+    // Preserve the camera only when the model is unchanged; a different model
+    // should auto-frame. Keyed on model identity, not panel visibility.
+    const sameModel = this.geometry?.offText === offText;
+    this.geometry = { offText, opId: `load-${++this.loadCounter}` };
+    if (!sameModel) this.camera = undefined;
+
+    const promise = new Promise<LoadOutcome>((resolve) => {
+      this.pending = {
+        outcome: {
+          ready: false,
+          protocolVersion: -1,
+          expectedProtocolVersion: this.expectedProtocolVersion,
+          loaded: false,
+          closedByUser: false,
+        },
+        resolve,
+        timer: setTimeout(() => this.settle(), HANDSHAKE_TIMEOUT_MS),
+        settled: false,
       };
-      let settled = false;
-      const settle = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        sub.dispose();
-        disposeSub.dispose();
-        resolve(outcome);
-      };
-      const timer = setTimeout(settle, HANDSHAKE_TIMEOUT_MS);
-
-      const opId = 'host-load-1';
-      const sub = panel.webview.onDidReceiveMessage((msg: ViewerOutbound) => {
-        switch (msg.type) {
-          case 'ready':
-            outcome.ready = true;
-            outcome.protocolVersion = msg.protocolVersion;
-            if (msg.protocolVersion !== expectedProtocolVersion) {
-              settle(); // version skew — stop before pushing anything.
-              return;
-            }
-            void send(panel.webview, {
-              type: 'setViewerSettings',
-              showAxes: true,
-              showControls: true,
-            });
-            void send(panel.webview, { type: 'setGeometry', offText }, opId);
-            break;
-          case 'geometry-loaded':
-            outcome.loaded = true;
-            settle();
-            break;
-          case 'error':
-            outcome.error = `${msg.code}: ${msg.reason}`;
-            settle();
-            break;
-          // geometry-set / camera-change / acks: not terminal — ignore here.
-        }
-
-        function send(webview: vscode.Webview, message: ViewerInbound, id?: string) {
-          return webview.postMessage(stampInbound(message, expectedProtocolVersion, id));
-        }
-      });
-
-      const disposeSub = panel.onDidDispose(() => {
-        // Disposed before a terminal outcome == the user closed the panel.
-        outcome.closedByUser = !settled;
-        settle();
-      });
     });
+
+    this.panel.reveal(vscode.ViewColumn.Active, false);
+    // A live viewer (panel was visible) won't re-emit `ready`, so reflect the
+    // established handshake here. When not live, the imminent `ready` (initial
+    // load or reveal-reload) sets the outcome and pushes instead.
+    if (this.live && this.pending) {
+      this.pending.outcome.ready = true;
+      this.pending.outcome.protocolVersion = this.expectedProtocolVersion;
+      if (this.pushedOffText === offText) {
+        // The live viewer already holds this exact geometry and won't re-render
+        // it (no `geometry-loaded` will arrive) — resolve from what we know
+        // instead of waiting out the timeout.
+        this.pending.outcome.loaded = this.loadedOffText === offText;
+        this.settle();
+      } else {
+        this.pushAll();
+      }
+    }
+    return promise;
+  }
+
+  private onMessage(msg: ViewerOutbound): void {
+    switch (msg.type) {
+      case 'ready':
+        if (this.pending) {
+          this.pending.outcome.ready = true;
+          this.pending.outcome.protocolVersion = msg.protocolVersion;
+        }
+        if (msg.protocolVersion !== this.expectedProtocolVersion) {
+          this.settle(); // version skew — stop before pushing anything.
+          return;
+        }
+        this.live = true; // ready AND version OK → safe to (re)drive.
+        this.pushAll();
+        break;
+      case 'camera-change':
+        this.camera = msg.camera; // remember the user's view for reveal-reload.
+        break;
+      case 'geometry-loaded':
+        // Strict opId correlation (the viewer always echoes the setGeometry opId),
+        // so a superseded load's ack is ignored. Runs even with no pending load,
+        // so a reveal-reload restores the camera too.
+        if (msg.opId !== this.geometry?.opId) break;
+        this.loadedOffText = this.geometry?.offText;
+        // Restore the user's camera *after* the geometry mounts, so it overrides
+        // the viewer's auto-frame instead of racing it.
+        if (this.camera) this.send({ type: 'setCamera', camera: this.camera });
+        if (this.pending) {
+          this.pending.outcome.loaded = true;
+          this.settle();
+        }
+        break;
+      case 'error':
+        // Ignore a stale render-error from a superseded load; general errors
+        // (version/payload) carry no opId and still settle.
+        if (msg.opId !== undefined && msg.opId !== this.geometry?.opId) break;
+        if (this.pending) {
+          this.pending.outcome.error = `${msg.code}: ${msg.reason}`;
+          this.settle();
+        }
+        break;
+      // geometry-set / *-set acks: not terminal — ignore.
+    }
+  }
+
+  private pushAll(): void {
+    this.pushSettings();
+    if (this.geometry) {
+      this.pushedOffText = this.geometry.offText;
+      this.send({ type: 'setGeometry', offText: this.geometry.offText }, this.geometry.opId);
+    }
+    // The camera is restored after `geometry-loaded` (see onMessage), not here,
+    // so the viewer's auto-frame on mount doesn't clobber it.
+  }
+
+  private pushSettings(): void {
+    if (!this.live) return;
+    this.send({
+      type: 'setViewerSettings',
+      showAxes: true,
+      showControls: true,
+      background: themeBackground(),
+    });
+  }
+
+  private send(message: ViewerInbound, opId?: string): void {
+    void this.panel.webview.postMessage(stampInbound(message, this.expectedProtocolVersion, opId));
+  }
+
+  private settle(): void {
+    const p = this.pending;
+    if (!p || p.settled) return;
+    p.settled = true;
+    clearTimeout(p.timer);
+    this.pending = undefined;
+    p.resolve(p.outcome);
+  }
+
+  private onDispose(): void {
+    if (this.pending && !this.pending.settled) this.pending.outcome.closedByUser = true;
+    this.settle();
+    this.disposables.forEach((d) => d.dispose());
+    ViewerPanel.current = undefined;
+  }
+}
+
+/** Map the active VS Code theme to a scene background the viewer can apply. */
+function themeBackground(): string {
+  switch (vscode.window.activeColorTheme.kind) {
+    case vscode.ColorThemeKind.Light:
+    case vscode.ColorThemeKind.HighContrastLight:
+      return '#ffffff';
+    case vscode.ColorThemeKind.HighContrast:
+      return '#000000';
+    case vscode.ColorThemeKind.Dark:
+    default:
+      return '#1e1e1e';
   }
 }
 

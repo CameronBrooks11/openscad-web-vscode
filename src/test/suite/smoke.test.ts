@@ -28,5 +28,29 @@ describe('OpenSCAD Web Viewer — EDH smoke', () => {
       outcome.loaded || Boolean(outcome.error),
       'no terminal geometry outcome (neither geometry-loaded nor error)',
     );
+
+    // Reuse path: a second open with *different* geometry must reveal + re-drive
+    // the same panel and reach a terminal outcome (re-render or a clean error),
+    // not hang on the already-live webview. Different OFF guarantees a re-render
+    // even where headless WebGL is unavailable.
+    const tetrahedron = [
+      'OFF',
+      '4 4 6',
+      '0 0 0',
+      '1 0 0',
+      '0 1 0',
+      '0 0 1',
+      '3 0 1 2',
+      '3 0 1 3',
+      '3 0 2 3',
+      '3 1 2 3',
+      '',
+    ].join('\n');
+    const reuse = await api.showOff(tetrahedron, 'tetrahedron');
+    assert.strictEqual(reuse.ready, true, 'reused panel never signalled ready');
+    assert.ok(
+      reuse.loaded || Boolean(reuse.error),
+      'reused panel produced no terminal geometry outcome',
+    );
   });
 });
