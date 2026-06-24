@@ -60,3 +60,33 @@ describe('OpenSCAD Web Viewer — EDH smoke', () => {
     assert.strictEqual(applied, true, 'setNamedView was not acked by the viewer');
   });
 });
+
+// Compile-capable session (epic #8 P2): boots `session.html` under the compile CSP
+// (`wasm-unsafe-eval` + `worker-src blob:`) and completes the L1 handshake. This
+// exercises the riskiest integration — the WASM engine + BrowserFS actually
+// initialise in the webview — without needing WebGL (`ready` fires before any
+// render). Compiling a project over the session is P3.
+describe('OpenSCAD Web Session — EDH boot', () => {
+  it('boots the compile-capable session webview and completes the L1 handshake', async function () {
+    this.timeout(90_000); // cold WASM + BrowserFS init is slower than the L0 viewer.
+
+    const ext = vscode.extensions.getExtension<ExtensionApi>('cameronbrooks11.openscad-web-vscode');
+    assert.ok(ext, 'extension not found by id');
+
+    const api = await ext.activate();
+    assert.ok(typeof api.bootSession === 'function', 'extension API missing bootSession');
+
+    const outcome = await api.bootSession();
+
+    assert.strictEqual(
+      outcome.ready,
+      true,
+      `session never signalled ready: ${outcome.error ?? '(no terminal outcome)'}`,
+    );
+    assert.strictEqual(
+      outcome.protocolVersion,
+      outcome.expectedProtocolVersion,
+      'session/extension protocol version skew',
+    );
+  });
+});
