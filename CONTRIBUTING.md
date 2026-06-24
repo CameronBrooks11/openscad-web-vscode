@@ -28,16 +28,24 @@ npm run test:unit    # fast Node unit tests only
 A `justfile` mirrors these (`just setup`, `just check`, `just test`, …). Run
 `npm run check` (and the smoke test) before opening a PR — CI runs the same.
 
-## The vendored viewer
+## The vendored artifacts
 
-`media/viewer/` is a **pinned, committed** copy of openscad-web's `dist-viewer/`.
-**Never hand-edit it.** To update it, build the artifact in a sibling
-openscad-web checkout, then re-vendor:
+`media/viewer/` and `media/session/` are **pinned, committed** copies of
+openscad-web's `dist-viewer/` and `dist-session/`. **Never hand-edit them.** To
+update one, build the artifact in a sibling openscad-web checkout, then re-vendor:
 
 ```bash
 (cd ../openscad-web && npm run build:viewer)
-npm run sync-viewer   # copies dist-viewer/ -> media/viewer/ and re-verifies the manifest
+npm run sync-viewer    # copies dist-viewer/ -> media/viewer/ and re-verifies the manifest
+
+(cd ../openscad-web && npm run build:session)
+npm run sync-session   # copies dist-session/ -> media/session/ and re-verifies the manifest
 ```
+
+`media/viewer/` is the read-only OFF viewer (~0.6 MB). `media/session/` is the
+compile-capable session artifact (~20 MB — it carries the OpenSCAD WASM + worker +
+library zips) that powers live `.scad` preview (epic #8). Both are integrity-checked
+against their manifests in `npm run check` and CI.
 
 ## Commits & PRs
 
