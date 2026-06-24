@@ -17,6 +17,10 @@ export interface CameraPose {
   zoom: number;
 }
 
+/** Fit-aware named camera views (mirrors the viewer's `VIEWER_NAMED_VIEWS`). */
+export const NAMED_VIEWS = ['Diagonal', 'Front', 'Right', 'Back', 'Left', 'Top', 'Bottom'] as const;
+export type NamedView = (typeof NAMED_VIEWS)[number];
+
 /** Host → viewer. Mirrors `ViewerInbound` in `media/viewer/protocol/index.d.ts`. */
 export type ViewerInbound =
   | { type: 'setGeometry'; offText: string }
@@ -29,6 +33,7 @@ export type ViewerInbound =
       showControls?: boolean;
     }
   | { type: 'setCamera'; camera: CameraPose }
+  | { type: 'setNamedView'; view: NamedView }
   | { type: 'dispose' };
 
 /** Viewer → host. The outbound subset the extension reacts to. */
@@ -38,6 +43,7 @@ export type ViewerOutbound =
   | { type: 'geometry-loaded'; thumbhash?: string; opId?: string }
   | { type: 'viewer-settings-set'; opId?: string }
   | { type: 'camera-set'; opId?: string }
+  | { type: 'named-view-set'; opId?: string }
   | { type: 'disposed'; opId?: string }
   | { type: 'camera-change'; camera: CameraPose }
   | { type: 'error'; code: string; reason: string; opId?: string };

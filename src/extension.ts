@@ -1,12 +1,15 @@
 import * as vscode from 'vscode';
 import { ViewerPanel, type LoadOutcome } from './viewerPanel';
 import { readFixtureOff } from './viewerArtifact';
+import { NAMED_VIEWS, type NamedView } from './protocol';
 
 /** The API the extension returns from `activate`, used by the EDH smoke test. */
 export interface ExtensionApi {
   showFixture(): Promise<LoadOutcome>;
   /** Drive the viewer with arbitrary OFF text (used to exercise panel reuse). */
   showOff(offText: string, title: string): Promise<LoadOutcome>;
+  /** Apply a fit-aware named camera view; resolves true once acked. */
+  setView(view: NamedView): Promise<boolean>;
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -28,11 +31,21 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       const name = target.path.split('/').pop() ?? 'geometry';
       report(await ViewerPanel.show(context, new TextDecoder().decode(bytes), name));
     }),
+    vscode.commands.registerCommand('openscadWebViewer.setView', async () => {
+      if (!ViewerPanel.hasPanel()) {
+        void vscode.window.showWarningMessage('Open a model in the OpenSCAD viewer first.');
+        return;
+      }
+      const view = (await vscode.window.showQuickPick([...NAMED_VIEWS], {
+        placeHolder: 'Set camera view',
+      })) as NamedView | undefined;
+      if (view) void ViewerPanel.applyNamedView(view);
+    }),
     // Live-sync the viewer background to the active VS Code theme.
     vscode.window.onDidChangeActiveColorTheme(() => ViewerPanel.applyTheme()),
   );
 
-  return { showFixture, showOff };
+  return { showFixture, showOff, setView: (view) => ViewerPanel.applyNamedView(view) };
 }
 
 export function deactivate(): void {

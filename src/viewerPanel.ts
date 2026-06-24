@@ -13,7 +13,13 @@
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { readManifest, viewerDir } from './viewerArtifact';
-import { stampInbound, type CameraPose, type ViewerInbound, type ViewerOutbound } from './protocol';
+import {
+  stampInbound,
+  type CameraPose,
+  type NamedView,
+  type ViewerInbound,
+  type ViewerOutbound,
+} from './protocol';
 
 /** The terminal result of a single load — deliberately tolerant for headless CI. */
 export interface LoadOutcome {
@@ -55,6 +61,15 @@ export class ViewerPanel {
   /** Last user camera, restored on a reveal-reload of the same geometry. */
   private camera?: CameraPose;
   private pending?: Pending;
+  /** Capabilities advertised by the viewer on `ready`. */
+  private capabilities: string[] = [];
+  /** In-flight named-view request awaiting its `named-view-set` ack. */
+  private namedViewWaiter?: {
+    opId: string;
+    resolve: (ok: boolean) => void;
+    timer: ReturnType<typeof setTimeout>;
+  };
+  private namedViewSeq = 0;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -97,6 +112,20 @@ export class ViewerPanel {
   /** Push the active VS Code theme to the live panel, if any. */
   static applyTheme(): void {
     ViewerPanel.current?.pushSettings();
+  }
+
+  /** Whether a viewer panel currently exists. */
+  static hasPanel(): boolean {
+    return ViewerPanel.current !== undefined;
+  }
+
+  /**
+   * Apply a fit-aware named camera view to the live panel. Resolves false when
+   * unavailable (no live panel, or the viewer lacks the `setNamedView` capability)
+   * or if the ack doesn't arrive.
+   */
+  static applyNamedView(view: NamedView): Promise<boolean> {
+    return ViewerPanel.current?.sendNamedView(view) ?? Promise.resolve(false);
   }
 
   private load(offText: string, title: string): Promise<LoadOutcome> {
@@ -148,6 +177,7 @@ export class ViewerPanel {
   private onMessage(msg: ViewerOutbound): void {
     switch (msg.type) {
       case 'ready':
+        this.capabilities = msg.capabilities;
         if (this.pending) {
           this.pending.outcome.ready = true;
           this.pending.outcome.protocolVersion = msg.protocolVersion;
@@ -161,6 +191,13 @@ export class ViewerPanel {
         break;
       case 'camera-change':
         this.camera = msg.camera; // remember the user's view for reveal-reload.
+        break;
+      case 'named-view-set':
+        if (this.namedViewWaiter && msg.opId === this.namedViewWaiter.opId) {
+          clearTimeout(this.namedViewWaiter.timer);
+          this.namedViewWaiter.resolve(true);
+          this.namedViewWaiter = undefined;
+        }
         break;
       case 'geometry-loaded':
         // Strict opId correlation (the viewer always echoes the setGeometry opId),
@@ -199,6 +236,30 @@ export class ViewerPanel {
     // so the viewer's auto-frame on mount doesn't clobber it.
   }
 
+  private sendNamedView(view: NamedView): Promise<boolean> {
+    if (!this.live || !this.capabilities.includes('setNamedView')) {
+      return Promise.resolve(false);
+    }
+    // Supersede any prior in-flight request.
+    const prev = this.namedViewWaiter;
+    if (prev) {
+      clearTimeout(prev.timer);
+      prev.resolve(false);
+    }
+    const opId = `view-${++this.namedViewSeq}`;
+    this.send({ type: 'setNamedView', view }, opId);
+    return new Promise<boolean>((resolve) => {
+      this.namedViewWaiter = {
+        opId,
+        resolve,
+        timer: setTimeout(() => {
+          this.namedViewWaiter = undefined;
+          resolve(false);
+        }, 5_000),
+      };
+    });
+  }
+
   private pushSettings(): void {
     if (!this.live) return;
     this.send({
@@ -225,6 +286,11 @@ export class ViewerPanel {
   private onDispose(): void {
     if (this.pending && !this.pending.settled) this.pending.outcome.closedByUser = true;
     this.settle();
+    if (this.namedViewWaiter) {
+      clearTimeout(this.namedViewWaiter.timer);
+      this.namedViewWaiter.resolve(false);
+      this.namedViewWaiter = undefined;
+    }
     this.disposables.forEach((d) => d.dispose());
     ViewerPanel.current = undefined;
   }

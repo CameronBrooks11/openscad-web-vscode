@@ -8,6 +8,15 @@ export type CameraPose = {
     target: [number, number, number];
     zoom: number;
 };
+/**
+ * Canonical fit-aware named views a host can request via `setNamedView`. Unlike
+ * `setCamera` (a raw pose), these frame the model to its bounds viewer-side, so a
+ * host need not know the geometry's scale. Mirrors the viewer's `NAMED_POSITIONS`
+ * names exactly (a viewer-side test guards against drift, since this layer must
+ * not import the viewer).
+ */
+export declare const VIEWER_NAMED_VIEWS: readonly ["Diagonal", "Front", "Right", "Back", "Left", "Top", "Bottom"];
+export type NamedView = (typeof VIEWER_NAMED_VIEWS)[number];
 /** Fields every inbound message may carry for correlation (ADR 0005 envelope). */
 type Correlated = {
     opId?: string;
@@ -26,6 +35,9 @@ export type ViewerInbound = ({
 } & Correlated) | ({
     type: 'setCamera';
     camera: CameraPose;
+} & Correlated) | ({
+    type: 'setNamedView';
+    view: NamedView;
 } & Correlated) | ({
     type: 'dispose';
 } & Correlated);
@@ -68,6 +80,10 @@ export declare const viewerSettingsSet: (opId?: string) => {
     type: string;
 };
 export declare const viewerCameraSet: (opId?: string) => {
+    protocolVersion: number;
+    type: string;
+};
+export declare const viewerNamedViewSet: (opId?: string) => {
     protocolVersion: number;
     type: string;
 };
