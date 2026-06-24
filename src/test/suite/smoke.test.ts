@@ -93,15 +93,11 @@ describe('OpenSCAD Web Session — EDH boot', () => {
   // Compile orchestration (epic #8 P3): push a project and assert a real WASM
   // compile produces an OFF artifact — the direct analog of openscad-web's
   // session.spec.ts acceptance test, end-to-end through the extension's L1 plumbing.
-  //
-  // SKIPPED pending an upstream openscad-web fix: in a VS Code webview the compile
-  // worker is a blob: dedicated worker whose fetches bypass the webview's resource
-  // service worker, so its runtime asset fetches (wasm/fonts/library zips) hit the
-  // `vscode-resource` cdn and return HTTP 408. The session must instead hand the
-  // worker main-thread-created blob: URLs (or bytes) for its assets. The
-  // orchestration below is correct (the L1 round-trip reaches syntaxCheck); only the
-  // worker's asset loading fails. Un-skip after the fixed dist-session is re-vendored.
-  it.skip('compiles a pushed .scad project to an OFF artifact', async function () {
+  // GL-independent: the OFF artifact arrives from the WASM compile, before/regardless
+  // of the embedded viewer's GL render. Exercises the openscad-web #203 fix: the
+  // worker fetches its wasm/fonts/zip assets from main-thread-created blob: URLs,
+  // since a blob worker can't fetch vscode-resource URLs in a webview.
+  it('compiles a pushed .scad project to an OFF artifact', async function () {
     this.timeout(90_000); // boot (cold WASM) + compile.
 
     const ext = vscode.extensions.getExtension<ExtensionApi>('cameronbrooks11.openscad-web-vscode');

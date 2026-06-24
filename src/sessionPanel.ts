@@ -301,16 +301,18 @@ function buildSessionHtml(webview: vscode.Webview, dir: vscode.Uri): string {
   const baseHref = `${webview.asWebviewUri(dir).toString()}/`;
   // The compile CSP (openscad-web docs/EMBEDDING-VSCODE.md §6): WASM needs
   // `wasm-unsafe-eval`; the engine runs in a same-origin blob worker
-  // (`worker-src blob:`); `connect-src` covers the runtime fetches of the worker
-  // script, the .wasm, and the library zips (all same-origin webview resources).
-  // No COOP/COEP — the engine is single-threaded (no SharedArrayBuffer).
+  // (`worker-src blob:`). `connect-src` covers the main thread's fetches of the
+  // worker script / .wasm / zips (cspSource) AND the worker's fetches of those
+  // assets from same-origin `blob:` URLs — a blob worker's vscode-resource fetches
+  // bypass the resource service worker (HTTP 408), so the session hands it blob:
+  // URLs instead (openscad-web #203). No COOP/COEP — single-threaded engine.
   const csp = [
     `default-src 'none'`,
     `script-src ${webview.cspSource} 'wasm-unsafe-eval'`,
     `worker-src blob:`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `img-src ${webview.cspSource} data: blob:`,
-    `connect-src ${webview.cspSource}`,
+    `connect-src ${webview.cspSource} blob:`,
   ].join('; ');
 
   const raw = fs.readFileSync(vscode.Uri.joinPath(dir, 'session.html').fsPath, 'utf8');
