@@ -61,6 +61,9 @@ export interface ArtifactRef {
 }
 
 interface OperationResultBase {
+  // P3: this is the L1 *result-payload* version (`L1_PROTOCOL_VERSION`), a DIFFERENT
+  // axis from the session WIRE version pinned in the manifest. Do NOT gate it against
+  // the manifest's `protocolVersion` — they version different things (ADR 0005).
   protocolVersion: number;
   sessionId: string;
   operationId: string;

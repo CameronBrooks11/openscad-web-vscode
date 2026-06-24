@@ -88,7 +88,13 @@ export class SessionPanel {
     // the cached outcome rather than waiting for an event that won't come again.
     if (this.bootOutcome) return Promise.resolve(this.bootOutcome);
     return new Promise<BootOutcome>((resolve) => {
-      this.pending.push({ resolve, timer: setTimeout(() => this.settleBoot({}), BOOT_TIMEOUT_MS) });
+      this.pending.push({
+        resolve,
+        timer: setTimeout(
+          () => this.settleBoot({ error: `boot timed out after ${BOOT_TIMEOUT_MS}ms` }),
+          BOOT_TIMEOUT_MS,
+        ),
+      });
     });
   }
 
@@ -106,8 +112,9 @@ export class SessionPanel {
         break;
       case 'error':
         // A protocol-level error during boot (e.g. malformed handshake). Per-project
-        // compile errors (P3) arrive as `operation-result`, not here.
-        if (!this.bootOutcome) this.settleBoot({ error: `${msg.code}: ${msg.reason}` });
+        // compile errors (P3) arrive as `operation-result`, not here. `settleBoot`
+        // is once-only, so a post-boot protocol error is harmlessly ignored.
+        this.settleBoot({ error: `${msg.code}: ${msg.reason}` });
         break;
       // operation-result: handled in P3 (the compile push stream).
     }
