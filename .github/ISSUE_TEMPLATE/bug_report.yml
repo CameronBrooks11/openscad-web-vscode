@@ -1,0 +1,79 @@
+name: Bug report
+description: Report a problem with the OpenSCAD Web Viewer VS Code extension.
+title: '[Bug]: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Reproduction steps and
+        environment details make issues much faster to resolve.
+
+        This extension is the **read-only OFF viewer**. Live `.scad` preview is
+        planned but not built yet (epic
+        [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8)) —
+        please don't file `.scad` compile bugs against it.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This is about the read-only OFF viewer, not unbuilt `.scad` preview.
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected to happen instead.
+      placeholder: When I run command X, the viewer does Y. I expected Z.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps someone else can follow to see the bug.
+      placeholder: |
+        1. Open a folder / .off file ...
+        2. Run "OpenSCAD Viewer: ..." from the Command Palette ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: dropdown
+    id: command
+    attributes:
+      label: Which command?
+      options:
+        - 'Show Fixture Geometry'
+        - 'Preview .off File'
+        - 'Set Camera View'
+        - Other / not applicable
+    validations:
+      required: true
+  - type: input
+    id: vscode
+    attributes:
+      label: VS Code version
+      placeholder: 1.90.0 (Help → About)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, macOS 14, Ubuntu 24.04 ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / errors
+      description: Relevant output from the Webview Developer Tools console or the extension host log. Automatically formatted as code.
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Screenshots, a sample `.off` file that triggers the bug, or anything else that helps.

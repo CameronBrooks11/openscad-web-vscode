@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: openscad-web (upstream viewer + protocol)
+    url: https://github.com/CameronBrooks11/openscad-web
+    about: The standalone viewer and Layer-0 protocol this extension embeds live here.
+  - name: OpenSCAD language documentation
+    url: https://openscad.org/documentation.html
+    about: Questions about the OpenSCAD language itself (not this extension) are best answered here.
