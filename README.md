@@ -10,8 +10,11 @@ separate milestone). It contains no OpenSCAD WASM, no editor, and no compiler �
 embeds the openscad-web viewer artifact and speaks its Layer-0 (L0) message
 protocol.
 
-> Status: **scaffold**. Commands work; the geometry round-trip + version pin are
-> wired and covered by an Extension Development Host smoke test.
+> **Status — early prototype.** The read-only OFF viewer works: the commands
+> below open geometry in a webview, and the round-trip + version pin are covered
+> by an Extension Development Host smoke test. **Live `.scad` preview is planned,
+> not built** — tracked by epic
+> [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
 
 ## Commands
 
@@ -19,6 +22,7 @@ protocol.
 | ---------------------------------------- | ------------------------------------------------- |
 | `OpenSCAD Viewer: Show Fixture Geometry` | Opens the viewer on a bundled fixture cube.       |
 | `OpenSCAD Viewer: Preview .off File`     | Opens the viewer on the active / selected `.off`. |
+| `OpenSCAD Viewer: Set Camera View`       | Sets the camera (Front / Top / Diagonal / …).     |
 
 ## How it works
 
@@ -91,10 +95,14 @@ npm run compile
 # then press F5 in VS Code → "Run Extension", run a command from the palette
 ```
 
-- `npm run check` — format-check + lint + compile + verify the vendored viewer.
+- `npm run check` — format-check + lint + compile + unit tests + verify the
+  vendored viewer.
 - `npm test` — the EDH smoke test (use `xvfb-run -a npm test` on a headless Linux
   box). It asserts the message round-trip and tolerates GL-unavailable runners.
 - A `justfile` mirrors these (`just setup`, `just check`, `just test`, …).
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the host-neutral design
+and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full dev loop.
 
 ## License
 
