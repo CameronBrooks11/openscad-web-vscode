@@ -16,6 +16,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `sync-viewer` / `verify-viewer` scripts.
 - Extension Development Host smoke test (message round-trip) and CI workflow.
 - `vsce` packaging (`npm run package`) producing a verified VSIX.
+- Extension icon + Marketplace metadata (keywords, gallery banner), a generated
+  `icon.png` (`npm run make-icon`), and `just install-local` to build + install
+  the VSIX into a local VS Code. "Try it locally" docs in the README.
 
 ### Changed
 

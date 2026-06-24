@@ -58,6 +58,31 @@ npm run sync-viewer          # copies dist-viewer/ -> media/viewer/ and verifies
 `npm run verify-viewer` (part of `npm run check` and CI) re-checks the vendored
 copy against its manifest.
 
+## Try it locally
+
+No Marketplace needed — two ways to run it from a clone (`media/viewer/` is
+vendored, so there are no extra build steps):
+
+**A — Extension Development Host (fastest):**
+
+```bash
+npm install
+# open this folder in VS Code, press F5 → "Run Extension"
+# in the new window: Command Palette → "OpenSCAD Viewer: Show Fixture Geometry"
+```
+
+**B — install the VSIX into your real VS Code:**
+
+```bash
+npm install
+npm run package        # → openscad-web-vscode.vsix
+code --install-extension openscad-web-vscode.vsix
+# (just install-local does both)
+```
+
+Commands (Command Palette): _Show Fixture Geometry_, _Preview .off File_ (also on
+the `.off` editor/explorer menu), and _Set Camera View_ (Front/Top/Diagonal/…).
+
 ## Develop
 
 ```bash
