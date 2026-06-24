@@ -81,7 +81,8 @@
     "make-icon": "node ./scripts/make-icon.mjs",
     "pretest": "npm run compile && npm run lint",
     "test": "node ./out/test/runTest.js",
-    "check": "npm run format:check && npm run lint && npm run compile && npm run verify-viewer",
+    "test:unit": "node --test \"out/**/__tests__/*.test.js\"",
+    "check": "npm run format:check && npm run lint && npm run compile && npm run test:unit && npm run verify-viewer",
     "package": "vsce package --no-dependencies -o openscad-web-vscode.vsix"
   },
   "devDependencies": {
