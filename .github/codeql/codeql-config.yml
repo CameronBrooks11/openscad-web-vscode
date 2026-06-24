@@ -1,0 +1,10 @@
+name: openscad-web-vscode CodeQL config
+
+# The extension's own first-party code is src/ and scripts/. media/ is vendored,
+# pinned third-party build output (the openscad-web viewer + session bundles,
+# including Three.js and the OpenSCAD WASM glue) whose integrity is already
+# guaranteed by manifest SHA-256 verification — not source we author or can fix.
+# Exclude it so its minified bundles don't raise false positives (e.g. Three.js's
+# Math.random() for geometry IDs flagged as js/insecure-randomness).
+paths-ignore:
+  - media/**
