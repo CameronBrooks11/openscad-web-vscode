@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
 import { ViewerPanel, type LoadOutcome } from './viewerPanel';
-import { SessionPanel, type BootOutcome } from './sessionPanel';
+import { SessionPanel, type BootOutcome, type CompileOutcome } from './sessionPanel';
 import { readFixtureOff } from './viewerArtifact';
 import { NAMED_VIEWS, type NamedView } from './protocol';
+import type { ProjectFile } from './sessionProtocol';
+import { walkImportGraph } from './scad/importGraph';
+import { vscodeScadFs } from './scad/vscodeFs';
 
 /** The API the extension returns from `activate`, used by the EDH smoke test. */
 export interface ExtensionApi {
@@ -11,9 +14,10 @@ export interface ExtensionApi {
   showOff(offText: string, title: string): Promise<LoadOutcome>;
   /** Apply a fit-aware named camera view; resolves true once acked. */
   setView(view: NamedView): Promise<boolean>;
-  /** Boot the compile-capable session webview and await its L1 `ready` handshake
-   *  (P2). Compiling a project over the session is wired in P3. */
+  /** Boot the compile-capable session webview and await its L1 `ready` handshake. */
   bootSession(): Promise<BootOutcome>;
+  /** Push a project to the session and await the terminal compile outcome (P3). */
+  compileSession(files: ProjectFile[], entryPoint?: string): Promise<CompileOutcome>;
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -35,6 +39,29 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       const name = target.path.split('/').pop() ?? 'geometry';
       report(await ViewerPanel.show(context, new TextDecoder().decode(bytes), name));
     }),
+    vscode.commands.registerCommand('openscadWebViewer.previewScad', async (uri?: vscode.Uri) => {
+      const entry = uri ?? vscode.window.activeTextEditor?.document.uri;
+      if (!entry) {
+        void vscode.window.showWarningMessage('Open or select a .scad file to preview.');
+        return;
+      }
+      // Closure root: the entry's workspace folder, else its own directory. The
+      // walker maps everything under root into the engine's `/home` VFS.
+      const root =
+        vscode.workspace.getWorkspaceFolder(entry)?.uri ?? vscode.Uri.joinPath(entry, '..');
+      let closure;
+      try {
+        closure = await walkImportGraph(vscodeScadFs(root), root.path, entry.path);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Could not resolve .scad imports: ${asMessage(e)}`);
+        return;
+      }
+      // Surface unpreviewable deps (escapes-root) as warnings; full diagnostics P4.
+      for (const issue of closure.issues) {
+        void vscode.window.showWarningMessage(`OpenSCAD: ${issue.message}`);
+      }
+      reportCompile(await SessionPanel.compile(context, closure.files, closure.entryPoint));
+    }),
     vscode.commands.registerCommand('openscadWebViewer.setView', async () => {
       if (!ViewerPanel.hasPanel()) {
         void vscode.window.showWarningMessage('Open a model in the OpenSCAD viewer first.');
@@ -54,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     showOff,
     setView: (view) => ViewerPanel.applyNamedView(view),
     bootSession: () => SessionPanel.boot(context),
+    compileSession: (files, entryPoint) => SessionPanel.compile(context, files, entryPoint),
   };
 }
 
@@ -78,4 +106,24 @@ function report(outcome: LoadOutcome): void {
   } else if (outcome.loaded) {
     void vscode.window.showInformationMessage('OpenSCAD geometry rendered.');
   }
+}
+
+function reportCompile(outcome: CompileOutcome): void {
+  if (outcome.closedByUser) {
+    return; // user dismissed the session panel before it settled — not an error.
+  }
+  if (!outcome.ready) {
+    // A failed/skewed boot carries its reason (incl. protocol-version mismatch).
+    void vscode.window.showErrorMessage(outcome.error ?? 'OpenSCAD session did not initialize.');
+  } else if (outcome.compiled) {
+    void vscode.window.showInformationMessage('OpenSCAD model compiled.');
+  } else if (outcome.error) {
+    void vscode.window.showErrorMessage(`OpenSCAD compile failed: ${outcome.error}`);
+  } else {
+    void vscode.window.showWarningMessage('OpenSCAD: no compile result.');
+  }
+}
+
+function asMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }

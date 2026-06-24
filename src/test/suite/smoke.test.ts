@@ -89,4 +89,42 @@ describe('OpenSCAD Web Session — EDH boot', () => {
       'session/extension protocol version skew',
     );
   });
+
+  // Compile orchestration (epic #8 P3): push a project and assert a real WASM
+  // compile produces an OFF artifact — the direct analog of openscad-web's
+  // session.spec.ts acceptance test, end-to-end through the extension's L1 plumbing.
+  //
+  // SKIPPED pending an upstream openscad-web fix: in a VS Code webview the compile
+  // worker is a blob: dedicated worker whose fetches bypass the webview's resource
+  // service worker, so its runtime asset fetches (wasm/fonts/library zips) hit the
+  // `vscode-resource` cdn and return HTTP 408. The session must instead hand the
+  // worker main-thread-created blob: URLs (or bytes) for its assets. The
+  // orchestration below is correct (the L1 round-trip reaches syntaxCheck); only the
+  // worker's asset loading fails. Un-skip after the fixed dist-session is re-vendored.
+  it.skip('compiles a pushed .scad project to an OFF artifact', async function () {
+    this.timeout(90_000); // boot (cold WASM) + compile.
+
+    const ext = vscode.extensions.getExtension<ExtensionApi>('cameronbrooks11.openscad-web-vscode');
+    assert.ok(ext, 'extension not found by id');
+
+    const api = await ext.activate();
+    assert.ok(typeof api.compileSession === 'function', 'extension API missing compileSession');
+
+    const outcome = await api.compileSession(
+      [{ path: '/home/main.scad', content: 'cube([10, 10, 10]);' }],
+      '/home/main.scad',
+    );
+
+    assert.strictEqual(
+      outcome.ready,
+      true,
+      `session never booted: ${outcome.error ?? '(no terminal outcome)'}`,
+    );
+    assert.strictEqual(
+      outcome.compiled,
+      true,
+      `project did not compile: ${outcome.error ?? '(no terminal outcome)'}`,
+    );
+    assert.strictEqual(outcome.artifact?.format, 'off', 'compile produced no OFF artifact');
+  });
 });
