@@ -48,6 +48,10 @@
         "title": "OpenSCAD Viewer: Preview .off File"
       },
       {
+        "command": "openscadWebViewer.previewScad",
+        "title": "OpenSCAD Viewer: Preview .scad File (compile)"
+      },
+      {
         "command": "openscadWebViewer.setView",
         "title": "OpenSCAD Viewer: Set Camera View"
       }
@@ -58,12 +62,22 @@
           "when": "resourceExtname == .off",
           "command": "openscadWebViewer.openOffFile",
           "group": "navigation@9"
+        },
+        {
+          "when": "resourceExtname == .scad",
+          "command": "openscadWebViewer.previewScad",
+          "group": "navigation@9"
         }
       ],
       "editor/title": [
         {
           "when": "resourceExtname == .off",
           "command": "openscadWebViewer.openOffFile",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceExtname == .scad",
+          "command": "openscadWebViewer.previewScad",
           "group": "navigation"
         }
       ]

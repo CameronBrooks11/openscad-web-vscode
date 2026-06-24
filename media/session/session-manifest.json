@@ -2,28 +2,28 @@
   "schemaVersion": 1,
   "sessionVersion": "0.2.0",
   "protocolVersion": 1,
-  "sourceCommit": "f42273a6d7996faa75a394b8537959278af3dd65",
-  "builtAt": "2026-06-24T17:32:37.696Z",
+  "sourceCommit": "0050a40a9b1bc038fe68bea8ae1ab8c308092b11",
+  "builtAt": "2026-06-24T20:16:21.731Z",
   "files": {
-    "assets/export_glb-s6yieP2t.js": {
+    "assets/export_glb-DR_kNl_0.js": {
       "bytes": 402,
-      "sha256": "cddae1ad739aa07413a291913f04c361bac186c80b681e20c23aa4978ec461c2"
+      "sha256": "166d26b186c112566f613ae250aca29813bac16becac98aef0035631e2561df7"
     },
     "assets/openscad-DIKIGOy4.wasm": {
       "bytes": 9603115,
       "sha256": "f72ce246c02c0e501990837102be383326b153fd761774ebfacce5c80c5ecf26"
     },
-    "assets/openscad-worker-TdIDlv_c.js": {
-      "bytes": 342525,
-      "sha256": "683e7921a3e79f071bdda510662590ede792a2701342da80fe50bea61f3da49d"
+    "assets/openscad-worker-BIjO_pt_.js": {
+      "bytes": 342650,
+      "sha256": "e225b69e743c83a553fa74c120470773712e6c1128adf06db8ace13344bb0ffc"
     },
     "assets/rolldown-runtime-BHe-jwch.js": {
       "bytes": 957,
       "sha256": "e17cabe5e25f3c66777c529f01df0ae562f11671a8506eb583d8799eaceeb149"
     },
-    "assets/session-CMgObkK0.js": {
-      "bytes": 494355,
-      "sha256": "6da872da6c540dce4c1b3f65b0b7fb655774cdafc3f5b04e73593d914f385b4f"
+    "assets/session-CjVZaKAY.js": {
+      "bytes": 494984,
+      "sha256": "1cf833f71f4d0aeb0cc931d04209ce95ca71ceaaa33e89591e2fc35756952bc9"
     },
     "assets/three-ueoR9k1z.js": {
       "bytes": 571835,
@@ -147,7 +147,7 @@
     },
     "session.html": {
       "bytes": 1013,
-      "sha256": "fbf87631d7dbc99ab0322c83ac2910357a95fefc45828b527b40fd77cd454c03"
+      "sha256": "817aa4911999ae6df1dc4f5056f902e3bab95ed18d47aa2efbd0ca155f26b54a"
     }
   },
   "allowlist": [
