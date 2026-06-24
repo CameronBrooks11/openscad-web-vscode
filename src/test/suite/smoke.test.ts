@@ -2,10 +2,11 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import type { ExtensionApi } from '../../extension';
 
-// Extension Development Host smoke test. Asserts the L0 message *round-trip*, not
-// pixels: ready handshake + version pin + a terminal geometry outcome. WebGL may
-// be unavailable on a headless runner, so a clean `error` is an acceptable
-// terminal outcome alongside `geometry-loaded`.
+// Extension Development Host smoke test. Asserts the L0 message round-trip AND
+// that the bundled fixture actually renders (`geometry-loaded`) — headless CI has
+// WebGL via SwiftShader (xvfb + --enable-unsafe-swiftshader). Requiring a real
+// load is deliberate: tolerating any `error` previously masked a malformed fixture
+// (a `render-error` looked the same as a GL failure).
 describe('OpenSCAD Web Viewer — EDH smoke', () => {
   it('activates and round-trips the fixture OFF through the webview', async function () {
     this.timeout(60_000);
@@ -25,14 +26,14 @@ describe('OpenSCAD Web Viewer — EDH smoke', () => {
       'viewer/extension protocol version skew',
     );
     assert.ok(
-      outcome.loaded || Boolean(outcome.error),
-      'no terminal geometry outcome (neither geometry-loaded nor error)',
+      outcome.loaded,
+      `fixture did not render: ${outcome.error ?? '(no terminal outcome)'}`,
     );
 
     // Reuse path: a second open with *different* geometry must reveal + re-drive
-    // the same panel and reach a terminal outcome (re-render or a clean error),
-    // not hang on the already-live webview. Different OFF guarantees a re-render
-    // even where headless WebGL is unavailable.
+    // the same panel and render, not hang on the already-live webview. This
+    // tetrahedron uses the canonical multi-line OFF header, so it also exercises
+    // the parser fix end-to-end through the re-vendored viewer.
     const tetrahedron = [
       'OFF',
       '4 4 6',
@@ -49,8 +50,8 @@ describe('OpenSCAD Web Viewer — EDH smoke', () => {
     const reuse = await api.showOff(tetrahedron, 'tetrahedron');
     assert.strictEqual(reuse.ready, true, 'reused panel never signalled ready');
     assert.ok(
-      reuse.loaded || Boolean(reuse.error),
-      'reused panel produced no terminal geometry outcome',
+      reuse.loaded,
+      `reused panel did not render: ${reuse.error ?? '(no terminal outcome)'}`,
     );
 
     // Camera preset: a fit-aware named view round-trips through the L0

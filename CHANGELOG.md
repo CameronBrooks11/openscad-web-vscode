@@ -20,6 +20,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `icon.png` (`npm run make-icon`), and `just install-local` to build + install
   the VSIX into a local VS Code. "Try it locally" docs in the README.
 
+### Fixed
+
+- The bundled fixture (`Show Fixture Geometry`) failed to render — it used a
+  canonical multi-line OFF header the viewer's parser then rejected. The fixture
+  now uses the same-line header form, and the vendored viewer is re-synced to
+  include the upstream OFF parser fix (so _Preview .off File_ also handles
+  multi-line OFF files). The smoke test now requires the fixture to actually
+  render rather than tolerating any error (which had masked this).
+
 ### Changed
 
 - The viewer panel is now a single reusable instance: repeat opens reveal and
