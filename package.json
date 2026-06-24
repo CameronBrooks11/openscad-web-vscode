@@ -6,6 +6,7 @@
   "publisher": "cameronbrooks11",
   "license": "GPL-3.0-or-later",
   "private": true,
+  "icon": "icon.png",
   "overrides": {
     "serialize-javascript": ">=7.0.5"
   },
@@ -20,6 +21,20 @@
   "categories": [
     "Visualization"
   ],
+  "keywords": [
+    "openscad",
+    "scad",
+    "3d",
+    "off",
+    "geometry",
+    "viewer",
+    "cad",
+    "webgl"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
@@ -63,6 +78,7 @@
     "format:check": "prettier --check .",
     "sync-viewer": "node ./scripts/sync-viewer.mjs",
     "verify-viewer": "node ./scripts/verify-viewer-manifest.mjs",
+    "make-icon": "node ./scripts/make-icon.mjs",
     "pretest": "npm run compile && npm run lint",
     "test": "node ./out/test/runTest.js",
     "check": "npm run format:check && npm run lint && npm run compile && npm run verify-viewer",

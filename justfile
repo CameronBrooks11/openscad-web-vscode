@@ -31,3 +31,15 @@ test:
 # Re-vendor the viewer artifact from ../openscad-web (build it there first)
 sync-viewer *ARGS:
     npm run sync-viewer -- {{ARGS}}
+
+# Build the VSIX
+package:
+    npm run package
+
+# Build the VSIX and install it into your local VS Code
+install-local: package
+    code --install-extension openscad-web-vscode.vsix
+
+# Regenerate the extension icon (icon.png)
+make-icon:
+    npm run make-icon
