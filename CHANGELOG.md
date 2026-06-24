@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Import-graph closure walker (`src/scad/importGraph.ts`) — the foundation for
+  live `.scad` preview (#8, Phase 1): given an entry `.scad` + project root, it
+  discovers the transitive set of relative `use`/`include` deps (ignoring
+  comments/strings, libraries, and circular includes) and maps them to the
+  engine's `/home` VFS, so the whole project can be pushed before a synchronous
+  WASM compile. Pure + dependency-free, with `node:test` unit tests (`test:unit`).
 - Initial scaffold: VS Code extension that embeds the openscad-web standalone
   viewer to preview OFF geometry.
 - Commands: _Show Fixture Geometry_ and _Preview .off File_.

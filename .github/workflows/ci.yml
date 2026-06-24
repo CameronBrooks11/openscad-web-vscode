@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -29,6 +29,9 @@ jobs:
 
       - name: Compile
         run: npm run compile
+
+      - name: Unit tests
+        run: npm run test:unit
 
       - name: Verify vendored viewer artifact
         run: npm run verify-viewer
