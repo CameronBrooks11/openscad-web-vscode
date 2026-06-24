@@ -5,11 +5,14 @@ import { readFixtureOff } from './viewerArtifact';
 /** The API the extension returns from `activate`, used by the EDH smoke test. */
 export interface ExtensionApi {
   showFixture(): Promise<LoadOutcome>;
+  /** Drive the viewer with arbitrary OFF text (used to exercise panel reuse). */
+  showOff(offText: string, title: string): Promise<LoadOutcome>;
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const showFixture = () =>
-    ViewerPanel.showOff(context, readFixtureOff(context.extensionUri), 'fixture cube');
+    ViewerPanel.show(context, readFixtureOff(context.extensionUri), 'fixture cube');
+  const showOff = (offText: string, title: string) => ViewerPanel.show(context, offText, title);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('openscadWebViewer.showFixture', async () => {
@@ -23,11 +26,13 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       }
       const bytes = await vscode.workspace.fs.readFile(target);
       const name = target.path.split('/').pop() ?? 'geometry';
-      report(await ViewerPanel.showOff(context, new TextDecoder().decode(bytes), name));
+      report(await ViewerPanel.show(context, new TextDecoder().decode(bytes), name));
     }),
+    // Live-sync the viewer background to the active VS Code theme.
+    vscode.window.onDidChangeActiveColorTheme(() => ViewerPanel.applyTheme()),
   );
 
-  return { showFixture };
+  return { showFixture, showOff };
 }
 
 export function deactivate(): void {
