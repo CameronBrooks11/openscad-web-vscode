@@ -2,7 +2,7 @@
   "name": "openscad-web-vscode",
   "displayName": "OpenSCAD Web Viewer",
   "description": "Preview OpenSCAD geometry (OFF) in a VS Code webview, powered by the openscad-web standalone viewer.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "cameronbrooks11",
   "license": "GPL-3.0-or-later",
   "private": true,
@@ -13,6 +13,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/CameronBrooks11/openscad-web-vscode.git"
+  },
+  "homepage": "https://github.com/CameronBrooks11/openscad-web-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/CameronBrooks11/openscad-web-vscode/issues"
   },
   "engines": {
     "vscode": "^1.90.0",

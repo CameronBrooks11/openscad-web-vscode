@@ -1,28 +1,43 @@
 # OpenSCAD Web Viewer (VS Code extension)
 
-Preview OpenSCAD geometry (`.off` meshes) inside a VS Code webview, powered by the
-standalone viewer built in [**openscad-web**](https://github.com/CameronBrooks11/openscad-web).
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/cameronbrooks11.openscad-web-vscode?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=cameronbrooks11.openscad-web-vscode)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/cameronbrooks11.openscad-web-vscode)](https://marketplace.visualstudio.com/items?itemName=cameronbrooks11.openscad-web-vscode)
+[![CI](https://github.com/CameronBrooks11/openscad-web-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/CameronBrooks11/openscad-web-vscode/actions/workflows/ci.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-This is the **read-only viewer** extension — Phase 1 of the
-[read-only VS Code viewer epic](https://github.com/CameronBrooks11/openscad-web/issues/143).
-It renders existing OFF geometry; it does **not** compile `.scad` (that is a later,
-separate milestone). It contains no OpenSCAD WASM, no editor, and no compiler — it
-embeds the openscad-web viewer artifact and speaks its Layer-0 (L0) message
-protocol.
+Preview OpenSCAD models inside a VS Code webview — render existing `.off` meshes,
+and **compile multi-file `.scad` projects in the webview** via the openscad-web
+WASM engine (**no native OpenSCAD install**). Powered by the standalone viewer +
+session engine built in [**openscad-web**](https://github.com/CameronBrooks11/openscad-web).
 
-> **Status — early prototype.** The read-only OFF viewer works: the commands
-> below open geometry in a webview, and the round-trip + version pin are covered
-> by an Extension Development Host smoke test. **Live `.scad` preview is planned,
-> not built** — tracked by epic
-> [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
+> **Status.** The read-only OFF viewer and manual `.scad` compile-preview both
+> work and are covered by Extension Development Host tests (message round-trip,
+> protocol version pin, and a real WASM cube→OFF compile inside the webview).
+> **Automatic on-save preview + inline compiler diagnostics are next** — tracked
+> by epic [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
+
+## Install
+
+From the VS Code **Extensions** view, search **"OpenSCAD Web Viewer"** and install,
+or from the command line:
+
+```bash
+code --install-extension cameronbrooks11.openscad-web-vscode
+```
+
+Alternatively, download the `.vsix` from the
+[latest release](https://github.com/CameronBrooks11/openscad-web-vscode/releases)
+and run `code --install-extension <file>.vsix`, or
+[run it from source](#try-it-locally).
 
 ## Commands
 
-| Command                                  | What it does                                      |
-| ---------------------------------------- | ------------------------------------------------- |
-| `OpenSCAD Viewer: Show Fixture Geometry` | Opens the viewer on a bundled fixture cube.       |
-| `OpenSCAD Viewer: Preview .off File`     | Opens the viewer on the active / selected `.off`. |
-| `OpenSCAD Viewer: Set Camera View`       | Sets the camera (Front / Top / Diagonal / …).     |
+| Command                                  | What it does                                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `OpenSCAD Viewer: Show Fixture Geometry` | Opens the viewer on a bundled fixture cube.                                                                    |
+| `OpenSCAD Viewer: Preview .off File`     | Opens the viewer on the active / selected `.off`.                                                              |
+| `OpenSCAD Viewer: Preview .scad File`    | Compiles the active / selected `.scad` (+ its relative `use`/`include` closure) in the webview and renders it. |
+| `OpenSCAD Viewer: Set Camera View`       | Sets the camera (Front / Top / Diagonal / …).                                                                  |
 
 ## How it works
 

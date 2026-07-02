@@ -9,6 +9,7 @@ out/**/*.map
 **/.eslintrc*
 .gitignore
 .prettierignore
+.nvmrc
 justfile
 AGENTS.md
 .vscode-test/**
