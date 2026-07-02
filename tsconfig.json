@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "Node16",
     "target": "ES2022",
     "lib": ["ES2022"],
     "outDir": "out",
@@ -12,7 +12,8 @@
     "noImplicitReturns": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "moduleResolution": "node",
+    "moduleResolution": "Node16",
+    "types": ["node", "mocha", "vscode"],
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true
   },
