@@ -5,14 +5,31 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-02
+
+First Marketplace release.
+
 ### Added
 
-- Import-graph closure walker (`src/scad/importGraph.ts`) — the foundation for
-  live `.scad` preview (#8, Phase 1): given an entry `.scad` + project root, it
-  discovers the transitive set of relative `use`/`include` deps (ignoring
-  comments/strings, libraries, and circular includes) and maps them to the
-  engine's `/home` VFS, so the whole project can be pushed before a synchronous
-  WASM compile. Pure + dependency-free, with `node:test` unit tests (`test:unit`).
+- **`.scad` compile-preview** (_Preview .scad File_ command + `.scad`
+  editor/explorer menu): compiles a multi-file `.scad` project — the entry plus
+  its transitive relative `use`/`include` closure — **in the webview** via the
+  openscad-web WASM engine and renders it in-process, with **no native OpenSCAD
+  install**. Covered end-to-end by an Extension Development Host test that
+  compiles a real cube to an OFF artifact inside the webview.
+- Compile session host (`sessionPanel.ts`) loading the vendored `session.html`
+  under a compile-capable CSP, with the L1 session-protocol mirror
+  (`sessionProtocol.ts`) read from the pinned `media/session/` manifest, a
+  `ready` and version-skew guard, and supersession handling.
+- Vendored, hash-verified session artifact under `media/session/`, with
+  `sync-session` / `verify-session` scripts (analogs of the viewer scripts).
+- Import-graph closure walker (`src/scad/importGraph.ts`): given an entry
+  `.scad` + project root, it discovers the transitive set of relative
+  `use`/`include` deps (ignoring comments/strings, libraries, and circular
+  includes) and maps them to the engine's `/home` VFS, so the whole project can
+  be pushed before a synchronous WASM compile. Pure + dependency-free, with
+  `node:test` unit tests (`test:unit`). File reads prefer open editor buffers so
+  the preview reflects unsaved edits.
 - Initial scaffold: VS Code extension that embeds the openscad-web standalone
   viewer to preview OFF geometry.
 - Commands: _Show Fixture Geometry_ and _Preview .off File_.

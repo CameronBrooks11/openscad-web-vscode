@@ -1,0 +1,68 @@
+name: Release
+
+# Publish to the VS Code Marketplace (and Open VSX, if configured) when a
+# GitHub Release is published. Publishing a Release is the deliberate trigger —
+# a stray tag push does nothing. The same gate as CI must pass first, and the
+# Release tag must match package.json (vX.Y.Z), so a mistagged release can't ship.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # upload the VSIX asset to the Release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Full CI gate (format-check, lint, compile, unit, verify vendored artifacts)
+      - name: Check
+        run: npm run check
+
+      - name: Extension smoke test (headless)
+        run: xvfb-run -a npm test
+
+      - name: Verify Release tag matches package.json version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG="${{ github.event.release.tag_name }}"
+          if [ "$TAG" != "v$PKG_VERSION" ]; then
+            echo "::error::Release tag '$TAG' does not match package.json version 'v$PKG_VERSION'"
+            exit 1
+          fi
+          echo "Publishing v$PKG_VERSION"
+
+      - name: Package VSIX
+        run: npm run package # -> openscad-web-vscode.vsix
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish --no-dependencies --packagePath openscad-web-vscode.vsix
+
+      # Optional: also publish to Open VSX (VSCodium / Cursor / Gitpod) when an
+      # OVSX_PAT secret is present. Skipped cleanly if it isn't configured.
+      - name: Publish to Open VSX (optional)
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -n "$OVSX_PAT" ]; then
+            npx ovsx publish openscad-web-vscode.vsix -p "$OVSX_PAT"
+          else
+            echo "OVSX_PAT not set — skipping Open VSX publish."
+          fi
+
+      - name: Attach VSIX to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" openscad-web-vscode.vsix --clobber
