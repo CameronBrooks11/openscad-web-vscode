@@ -38,7 +38,7 @@ export type SessionInbound =
   | { type: 'updateFile'; path: string; content: string }
   | { type: 'removeFile'; path: string }
   | { type: 'setEntryPoint'; path: string }
-  | { type: 'export'; format: SessionExportFormat }
+  | { type: 'export'; format: SessionExportFormat; requestId?: string }
   | { type: 'getArtifact'; artifactId: string; requestId: string }
   | { type: 'cancel' }
   | { type: 'dispose' };
@@ -83,6 +83,9 @@ interface OperationResultBase {
   elapsedMillis: number;
   diagnostics: Diagnostic[];
   logText: string;
+  /** Echo of the initiating command's requestId (protocol v2 additive, #223) —
+   *  today only `export` threads one; absent on session-initiated results. */
+  requestId?: string;
 }
 
 export interface OperationSuccess extends OperationResultBase {

@@ -5,6 +5,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Exports are now correlated with their results by a `requestId` the session
+  echoes on every terminal of the operation (openscad-web#223) — replacing the
+  artifact-format heuristic, so a superseded export's late terminal (success
+  or failure) can never be attributed to the current request. Vendored session
+  artifact bumped to openscad-web v0.3.2.
+
 ## [0.2.0] - 2026-07-03
 
 The live-preview release: the `.scad` preview now recompiles on save with
