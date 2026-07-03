@@ -52,11 +52,15 @@ jobs:
           fi
           echo "Building v$PKG_VERSION"
 
-      - name: Package VSIX
-        run: npm run package # -> openscad-web-vscode.vsix
+      - name: Package VSIX (versioned filename)
+        run: |
+          npm run package # -> openscad-web-vscode.vsix
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          mv openscad-web-vscode.vsix "openscad-web-vscode-$PKG_VERSION.vsix"
+          echo "VSIX=openscad-web-vscode-$PKG_VERSION.vsix" >> "$GITHUB_ENV"
 
       - name: Attach VSIX to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" openscad-web-vscode.vsix --clobber
+        run: gh release upload "$TAG" "$VSIX" --clobber
