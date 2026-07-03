@@ -124,7 +124,7 @@ export class SessionPanel {
    * one. A second call on an already-booted panel reveals it and resolves with the
    * cached outcome. Re-uses one panel — the WASM engine is expensive to spin up.
    */
-  static boot(context: vscode.ExtensionContext): Promise<BootOutcome> {
+  static boot(context: vscode.ExtensionContext, reveal = true): Promise<BootOutcome> {
     if (!SessionPanel.current) {
       const dir = sessionDir(context.extensionUri);
       const expected = readSessionManifest(context.extensionUri).protocolVersion;
@@ -137,7 +137,7 @@ export class SessionPanel {
       panel.webview.html = buildSessionHtml(panel.webview, dir);
       SessionPanel.current = new SessionPanel(panel, expected);
     }
-    return SessionPanel.current.awaitBoot();
+    return SessionPanel.current.awaitBoot(reveal);
   }
 
   /**
@@ -150,18 +150,20 @@ export class SessionPanel {
     context: vscode.ExtensionContext,
     files: ProjectFile[],
     entryPoint?: string,
+    reveal = true,
   ): Promise<CompileOutcome> {
-    const boot = await SessionPanel.boot(context);
+    const boot = await SessionPanel.boot(context, reveal);
     const panel = SessionPanel.current;
     if (!panel) return fromBoot(boot); // disposed during boot
     return panel.runCompile(boot, files, entryPoint);
   }
 
-  private awaitBoot(): Promise<BootOutcome> {
-    // Reveal in the panel's own column, PRESERVING focus: compiles are now also
-    // fired by on-save triggers (P4), and yanking focus out of the editor on
-    // every save would make typing miserable.
-    this.panel.reveal(undefined, true);
+  private awaitBoot(reveal: boolean): Promise<BootOutcome> {
+    // Manual previews reveal the panel in its own column, PRESERVING focus so
+    // the editor keeps the caret. Save-triggered compiles don't reveal at all —
+    // flipping the panel's tab group back to it on every save would defeat the
+    // quiet-trigger design (the panel may be deliberately behind another tab).
+    if (reveal) this.panel.reveal(undefined, true);
     // The boot promise settles once; a later caller resolves from the cached
     // outcome rather than waiting for a `ready` that won't fire again.
     if (this.bootOutcome) return Promise.resolve(this.bootOutcome);
@@ -239,9 +241,15 @@ export class SessionPanel {
         // current project so it recompiles (first `ready` has no project yet → no-op).
         // The fresh engine's revision counter restarts at 0, so the revision gate
         // must restart with it — otherwise the redriven compile's results would all
-        // be dropped as "stale" and the waiter would hang to its timeout.
+        // be dropped as "stale" and the waiter would hang to its timeout. The
+        // accepted high-water mark must restart too: post-reload revisions are
+        // numerically BELOW the pre-reload ones, and the fresh results must still
+        // reset the accumulated diagnostics.
         this.maxRevisionSeen = 0;
-        if (this.compileWaiter) this.compileWaiter.minRevision = 0;
+        if (this.compileWaiter) {
+          this.compileWaiter.minRevision = 0;
+          this.compileWaiter.acceptedRevision = -1;
+        }
         this.redrive();
         break;
       case 'operation-result': {
@@ -254,10 +262,13 @@ export class SessionPanel {
         // each `setProject` bumps it exactly once, so a waiter ignores anything
         // below the revision floor captured at its creation (`minRevision`) — a
         // late result from a superseded push can no longer settle it. Residual
-        // window: if a compile is superseded before ANY of its results arrived,
-        // the floor predates it and one of its late results could still slip
-        // through; the debounce on save-triggers makes that window negligible,
-        // and the session renders the latest geometry in-process regardless.
+        // window: if a push is superseded before ANY of its results arrived
+        // (rapid re-trigger, or a reload-redriven push followed by an immediate
+        // new preview), the floor predates it and one of its late results could
+        // still slip through; the debounce on save-triggers makes that window
+        // small, and the session renders the latest geometry in-process
+        // regardless. Closing it fully needs host↔engine correlation (an ack
+        // carrying the assigned revision) — an upstream protocol change.
         const r = msg.result;
         this.maxRevisionSeen = Math.max(this.maxRevisionSeen, r.sourceRevision);
         const w = this.compileWaiter;

@@ -27,9 +27,25 @@ export class ScadDiagnostics implements vscode.Disposable {
   publish(root: vscode.Uri, entryVfsPath: string, markers: readonly FileMarker[]): void {
     const byUri = new Map<string, { uri: vscode.Uri; diags: vscode.Diagnostic[] }>();
     const entryRel = fromVfs(entryVfsPath);
+    // One compile fans out to a syntaxCheck AND a preview upstream, and both
+    // parse markers from the same stderr — identical markers arrive twice at
+    // the same revision, so dedup on the full identity before materializing.
+    const seen = new Set<string>();
     for (const m of markers) {
       const rel = m.relPath ?? entryRel;
       if (rel === null) continue; // unroutable and no entry to pin it on
+      const identity = JSON.stringify([
+        rel,
+        m.startLine,
+        m.startCol,
+        m.endLine,
+        m.endCol,
+        m.severity,
+        m.message,
+        m.source,
+      ]);
+      if (seen.has(identity)) continue;
+      seen.add(identity);
       const uri = root.with({ path: path.posix.join(root.path, rel) });
       const key = uri.toString();
       let bucket = byUri.get(key);

@@ -32,8 +32,9 @@ export function isPreviewableScad(uri: vscode.Uri | undefined): uri is vscode.Ur
  * rendered geometry and the diagnostics ARE the feedback — except boot failures,
  * which squiggles cannot convey.
  *
- * Returns the preview handle for trigger tracking, or `undefined` if the walk
- * failed outright.
+ * Returns the preview handle for trigger tracking ONLY when this compile ran to
+ * a real termination — `undefined` for a failed walk, a superseded/abandoned
+ * compile, or a dead/failed panel, none of which may (re-)claim tracking.
  */
 export async function runScadPreview(
   context: vscode.ExtensionContext,
@@ -52,17 +53,43 @@ export async function runScadPreview(
     return undefined;
   }
 
-  const outcome = await SessionPanel.compile(context, closure.files, closure.entryPoint);
+  // A triggered compile must never RE-CREATE the panel — closing it is how the
+  // user opts out of the loop, and the panel could have been closed during the
+  // (async) walk above. This check runs synchronously before compile()'s own
+  // panel lookup, so there is no further window.
+  if (opts.quiet && !SessionPanel.hasPanel()) return undefined;
+
+  const outcome = await SessionPanel.compile(
+    context,
+    closure.files,
+    closure.entryPoint,
+    /* reveal */ !opts.quiet,
+  );
   if (outcome.superseded || outcome.closedByUser) {
-    // Superseded: a newer compile owns the squiggles. Closed: the dispose
-    // listener clears them. Either way, don't publish stale markers.
-    return { entry, root };
+    // Superseded: a newer compile owns the squiggles and the tracking. Closed:
+    // the dispose listener cleared both. Either way this preview must NOT be
+    // (re-)tracked — that would undo clear() or steal tracking back from the
+    // preview that superseded it.
+    return undefined;
   }
-  diagnostics.publish(root, closure.entryPoint, [
-    ...markersFromDiagnostics(outcome.diagnostics),
-    ...markersFromIssues(closure.issues),
-  ]);
-  reportCompile(outcome, opts.quiet);
+  if (!outcome.ready) {
+    // Boot failure: the panel already tore itself down (and the dispose
+    // listener cleaned up), so don't publish markers nothing will ever clear.
+    reportCompile(outcome, opts.quiet);
+    return undefined;
+  }
+  // A failure that produced no markers (timeout, engine-level error) must not
+  // wipe the previous compile's squiggles with an empty publish — and it needs
+  // a toast even in quiet mode, since there is no other feedback that the
+  // preview is now stale.
+  const markerlessFailure = !outcome.compiled && outcome.diagnostics.length === 0;
+  if (!markerlessFailure) {
+    diagnostics.publish(root, closure.entryPoint, [
+      ...markersFromDiagnostics(outcome.diagnostics),
+      ...markersFromIssues(closure.issues),
+    ]);
+  }
+  reportCompile(outcome, opts.quiet && !markerlessFailure);
   return { entry, root };
 }
 

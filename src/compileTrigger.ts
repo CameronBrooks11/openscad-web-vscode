@@ -71,9 +71,10 @@ export class CompileTriggerController implements vscode.Disposable {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      // Re-check at fire time — the panel may have been closed mid-debounce,
-      // and recompiling would silently re-open it.
+      // Re-check at fire time — the panel may have been closed (or the trigger
+      // switched to manual) mid-debounce, and recompiling would be unwanted.
       if (!this.active || !SessionPanel.hasPanel()) return;
+      if (triggerMode() !== 'onSave') return;
       void this.recompile(this.active.entry);
     }, DEBOUNCE_MS);
   }

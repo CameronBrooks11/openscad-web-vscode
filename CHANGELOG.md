@@ -21,11 +21,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Compile results are now correlated by the engine's `sourceRevision`, so a
-  late result from a superseded compile can no longer settle (or mislabel) the
-  current one under rapid re-triggers.
-- Revealing the session panel no longer steals focus from the editor (on-save
-  recompiles would otherwise interrupt typing).
+- Compile results are now correlated by the engine's `sourceRevision`, closing
+  the common stale-settle races under rapid re-triggers (a small window remains
+  when a compile is superseded before any of its results arrived; a full fix
+  needs an upstream protocol ack).
+- Save-triggered recompiles no longer reveal the session panel or touch focus;
+  the manual command still reveals it, now without stealing editor focus.
 
 ## [0.1.0] - 2026-07-02
 

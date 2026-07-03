@@ -1,7 +1,7 @@
 {
   "name": "openscad-web-vscode",
   "displayName": "OpenSCAD Web Viewer",
-  "description": "Preview OpenSCAD geometry (OFF) in a VS Code webview, powered by the openscad-web standalone viewer.",
+  "description": "Preview OpenSCAD models in a VS Code webview — render OFF meshes and live-compile multi-file .scad projects via the openscad-web WASM engine (no native install).",
   "version": "0.1.0",
   "publisher": "cameronbrooks11",
   "license": "GPL-3.0-or-later",
@@ -53,7 +53,7 @@
           ],
           "enumDescriptions": [
             "Recompile the previewed project when any .scad file under its root is saved or changes on disk.",
-            "Recompile only via the 'Preview .scad File' command."
+            "Recompile only via the 'OpenSCAD Viewer: Preview .scad File (compile)' command."
           ],
           "default": "onSave",
           "description": "When to recompile the live .scad preview after it has been opened."
