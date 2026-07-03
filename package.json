@@ -74,6 +74,10 @@
         "title": "OpenSCAD Viewer: Preview .scad File (compile)"
       },
       {
+        "command": "openscadWebViewer.exportScad",
+        "title": "OpenSCAD Viewer: Export Model (STL, 3MF, GLB, …)"
+      },
+      {
         "command": "openscadWebViewer.setView",
         "title": "OpenSCAD Viewer: Set Camera View"
       }

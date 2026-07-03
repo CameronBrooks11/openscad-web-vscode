@@ -21,6 +21,8 @@ import {
   type ArtifactRef,
   type Diagnostic,
   type ProjectFile,
+  type SessionArtifactReply,
+  type SessionExportFormat,
   type SessionInbound,
   type SessionOutbound,
 } from './sessionProtocol';
@@ -60,10 +62,31 @@ export interface CompileOutcome {
 
 const BOOT_TIMEOUT_MS = 60_000; // cold WASM + FS init is slower than the L0 viewer.
 const COMPILE_TIMEOUT_MS = 60_000; // a single compile (syntaxCheck + preview) backstop.
+const EXPORT_TIMEOUT_MS = 120_000; // format conversion re-renders in the worker.
+const ARTIFACT_FETCH_TIMEOUT_MS = 15_000; // bytes round-trip after the export result.
+
+/** The result of a wire export (P6): the artifact identity + its exact bytes. */
+export interface ExportOutcome {
+  ok: boolean;
+  artifact?: ArtifactRef;
+  bytes?: Uint8Array;
+  error?: string;
+  /** A newer export superseded this one — a normal re-trigger, not a failure. */
+  superseded?: boolean;
+}
 
 interface BootWaiter {
   resolve: (o: BootOutcome) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface ExportWaiter {
+  resolve: (o: ExportOutcome) => void;
+  timer: ReturnType<typeof setTimeout>;
+  /** The requested format — a belt against cross-export result routing: the
+   *  wire has no export↔result correlation id (upstream follow-up), so a stale
+   *  export's terminal must at least not settle a different-format waiter. */
+  format: SessionExportFormat;
 }
 
 interface CompileWaiter {
@@ -97,6 +120,14 @@ export class SessionPanel {
   private currentProject?: { files: ProjectFile[]; entryPoint?: string };
   /** The in-flight compile awaiting its terminal result, if any. */
   private compileWaiter?: CompileWaiter;
+  /** The in-flight export awaiting its terminal result + bytes, if any. */
+  private exportWaiter?: ExportWaiter;
+  /** Pending getArtifact replies, keyed by requestId. */
+  private readonly artifactWaiters = new Map<
+    string,
+    (r: SessionArtifactReply | undefined) => void
+  >();
+  private requestSeq = 0;
   /** Highest `sourceRevision` observed on any result from THIS engine boot.
    *  Each `setProject` bumps the engine's revision exactly once, so a new
    *  compile only accepts results above everything seen before it. Reset on
@@ -156,6 +187,84 @@ export class SessionPanel {
     const panel = SessionPanel.current;
     if (!panel) return fromBoot(boot); // disposed during boot
     return panel.runCompile(boot, files, entryPoint);
+  }
+
+  /**
+   * Export the current preview as `format` and fetch the exact bytes (P6):
+   * `export` → the `kind:'export'` terminal on the push stream → `getArtifact`
+   * → the correlated `artifact` reply. Requires a LIVE session (never boots one
+   * — an export without a previewed model would only fail with `no-output`).
+   */
+  static exportArtifact(format: SessionExportFormat): Promise<ExportOutcome> {
+    const panel = SessionPanel.current;
+    if (!panel || !panel.live) {
+      return Promise.resolve({
+        ok: false,
+        error: 'No live OpenSCAD preview — run "Preview .scad File" first.',
+      });
+    }
+    return panel.runExport(format);
+  }
+
+  private runExport(format: SessionExportFormat): Promise<ExportOutcome> {
+    // One export at a time: a newer request supersedes the in-flight one
+    // (silently — a re-trigger is not a failure).
+    this.settleExport({ ok: false, superseded: true });
+    return new Promise<ExportOutcome>((resolve) => {
+      const waiter: ExportWaiter = {
+        resolve,
+        format,
+        timer: setTimeout(
+          () =>
+            this.settleExportIf(waiter, {
+              ok: false,
+              error: `export timed out after ${EXPORT_TIMEOUT_MS}ms`,
+            }),
+          EXPORT_TIMEOUT_MS,
+        ),
+      };
+      this.exportWaiter = waiter;
+      this.send({ type: 'export', format });
+    });
+  }
+
+  private settleExport(outcome: ExportOutcome): void {
+    const w = this.exportWaiter;
+    if (!w) return;
+    this.exportWaiter = undefined;
+    clearTimeout(w.timer);
+    w.resolve(outcome);
+  }
+
+  /** Settle ONLY IF `waiter` is still the current one — every async settle path
+   *  must identity-check, or a superseded export's late result/fetch would
+   *  settle the NEWER waiter with the OLDER artifact's bytes. */
+  private settleExportIf(waiter: ExportWaiter, outcome: ExportOutcome): void {
+    if (this.exportWaiter !== waiter) return;
+    this.settleExport(outcome);
+  }
+
+  /** Second half of the export flow: fetch the produced artifact's bytes by id.
+   *  `waiter` pins the export this fetch belongs to. */
+  private async fetchExportedArtifact(waiter: ExportWaiter, ref: ArtifactRef): Promise<void> {
+    const requestId = `exp-${++this.requestSeq}`;
+    const reply = await new Promise<SessionArtifactReply | undefined>((resolve) => {
+      this.artifactWaiters.set(requestId, resolve);
+      this.send({ type: 'getArtifact', artifactId: ref.artifactId, requestId });
+      setTimeout(() => {
+        if (this.artifactWaiters.delete(requestId)) resolve(undefined);
+      }, ARTIFACT_FETCH_TIMEOUT_MS);
+    });
+    if (!reply) {
+      this.settleExportIf(waiter, { ok: false, error: 'artifact fetch timed out' });
+    } else if (!reply.available) {
+      this.settleExportIf(waiter, {
+        ok: false,
+        error: 'the exported artifact is no longer available — try exporting again',
+      });
+    } else {
+      this.settleExportIf(waiter, { ok: true, artifact: reply.artifact, bytes: reply.bytes });
+    }
   }
 
   private awaitBoot(reveal: boolean): Promise<BootOutcome> {
@@ -250,6 +359,12 @@ export class SessionPanel {
           this.compileWaiter.minRevision = 0;
           this.compileWaiter.acceptedRevision = -1;
         }
+        // A reload also drops any in-flight export on the floor engine-side —
+        // settle it now instead of pinning a progress toast for 120s.
+        this.settleExport({
+          ok: false,
+          error: 'the session reloaded during the export — try again',
+        });
         this.redrive();
         break;
       case 'operation-result': {
@@ -270,6 +385,29 @@ export class SessionPanel {
         // regardless. Closing it fully needs host↔engine correlation (an ack
         // carrying the assigned revision) — an upstream protocol change.
         const r = msg.result;
+        // Export results branch off first: they are P6's flow, carry the
+        // CONSUMED output's (older) revision by design, and must neither settle
+        // the compile waiter (an off pass-through export looks exactly like a
+        // compiled preview) nor feed the diagnostics accumulator.
+        if (r.kind === 'export') {
+          const ew = this.exportWaiter;
+          if (!ew) break;
+          if (r.status === 'success' && r.artifact) {
+            // Format belt: the wire has no export↔result correlation id yet, so
+            // a SUPERSEDED export's late success must not feed the newer waiter
+            // — its artifact format differs whenever the formats differ. (Same-
+            // format supersession remains ambiguous until the upstream id.)
+            if (r.artifact.format !== ew.format) break;
+            void this.fetchExportedArtifact(ew, r.artifact);
+          } else if (r.status === 'error') {
+            // Append the engine log tail: "Render failed" alone is undiagnosable.
+            const logTail = r.logText ? `\n${r.logText.slice(-600)}` : '';
+            this.settleExportIf(ew, { ok: false, error: `${r.code}: ${r.reason}${logTail}` });
+          } else if (r.status === 'cancelled') {
+            this.settleExportIf(ew, { ok: false, error: 'export was cancelled' });
+          }
+          break;
+        }
         this.maxRevisionSeen = Math.max(this.maxRevisionSeen, r.sourceRevision);
         const w = this.compileWaiter;
         if (!w || w.settled) break;
@@ -290,6 +428,14 @@ export class SessionPanel {
           this.settleCompile();
         }
         // syntaxCheck success (no artifact) / cancelled → keep waiting.
+        break;
+      }
+      case 'artifact': {
+        const waiter = this.artifactWaiters.get(msg.requestId);
+        if (waiter) {
+          this.artifactWaiters.delete(msg.requestId);
+          waiter(msg);
+        }
         break;
       }
       case 'error':
@@ -346,6 +492,7 @@ export class SessionPanel {
     // not a failure (mirrors the viewer's closedByUser handling).
     if (!this.bootOutcome) this.settleBoot({ closedByUser: true });
     this.settleCompile({ closedByUser: true });
+    this.settleExport({ ok: false, error: 'the session panel was closed' });
     this.disposables.forEach((d) => d.dispose());
     SessionPanel.current = undefined;
     SessionPanel.disposedEmitter.fire();

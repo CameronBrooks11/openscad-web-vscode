@@ -123,4 +123,30 @@ describe('OpenSCAD Web Session — EDH boot', () => {
     );
     assert.strictEqual(outcome.artifact?.format, 'off', 'compile produced no OFF artifact');
   });
+
+  // Export over the wire (epic #8 P6): trigger a real STL conversion in the
+  // session and fetch the exact bytes back through the REAL VS Code webview
+  // channel — the end-to-end proof that typed arrays survive `postMessage`
+  // in both directions (upstream #216 + #197).
+  it('exports the compiled model as STL and receives the bytes', async function () {
+    this.timeout(120_000); // conversion re-renders in the WASM worker.
+
+    const ext = vscode.extensions.getExtension<ExtensionApi>('cameronbrooks11.openscad-web-vscode');
+    assert.ok(ext, 'extension not found by id');
+    const api = await ext.activate();
+    assert.ok(typeof api.exportSession === 'function', 'extension API missing exportSession');
+
+    // Ensure a compiled model exists (reuses the session panel from the P3 test).
+    const compiled = await api.compileSession(
+      [{ path: '/home/main.scad', content: 'cube([4, 4, 4]);' }],
+      '/home/main.scad',
+    );
+    assert.strictEqual(compiled.compiled, true, `compile failed: ${compiled.error}`);
+
+    const exported = await api.exportSession('stl');
+    assert.strictEqual(exported.ok, true, `export failed: ${exported.error}`);
+    assert.strictEqual(exported.artifact?.format, 'stl', 'export did not produce an STL');
+    assert.ok(exported.bytes instanceof Uint8Array, 'bytes did not arrive as a Uint8Array');
+    assert.ok(exported.bytes.byteLength > 0, 'exported STL is empty');
+  });
 });

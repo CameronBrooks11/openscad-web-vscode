@@ -17,11 +17,20 @@
 //
 // Contract reference: openscad-web `docs/EMBEDDING-VSCODE.md` §6 and ADR 0009.
 
-/** A text source file in a project (text-first; binary deferred upstream, #172). */
-export interface ProjectFile {
-  path: string;
-  content: string;
-}
+/**
+ * A source file in a project (protocol v2, upstream #172): editable text, or a
+ * binary asset's exact bytes as a `Uint8Array` via structured clone (never
+ * base64; VS Code revives typed arrays for extensions declaring
+ * `engines.vscode >= 1.57`). Exactly one of `content`/`bytes`. Bytes at a
+ * text-suffix path must be valid UTF-8 (the session treats them as text).
+ */
+export type ProjectFile =
+  | { path: string; content: string; bytes?: never }
+  | { path: string; bytes: Uint8Array; content?: never };
+
+/** The export formats a host may request (protocol v2, upstream #216). */
+export const SESSION_EXPORT_FORMATS = ['stl', 'off', 'glb', '3mf', 'svg', 'dxf'] as const;
+export type SessionExportFormat = (typeof SESSION_EXPORT_FORMATS)[number];
 
 /** Host → session. Mirrors `SessionInbound` in the shipped L1 protocol. */
 export type SessionInbound =
@@ -29,6 +38,8 @@ export type SessionInbound =
   | { type: 'updateFile'; path: string; content: string }
   | { type: 'removeFile'; path: string }
   | { type: 'setEntryPoint'; path: string }
+  | { type: 'export'; format: SessionExportFormat }
+  | { type: 'getArtifact'; artifactId: string; requestId: string }
   | { type: 'cancel' }
   | { type: 'dispose' };
 
@@ -90,10 +101,25 @@ export interface OperationCancelled extends OperationResultBase {
 /** Exactly one terminal result per `operationId`. */
 export type OperationResult = OperationSuccess | OperationFailure | OperationCancelled;
 
+/** The correlated reply to `getArtifact` (protocol v2, upstream #197): the
+ *  artifact's immutable identity + its exact bytes, or `available: false` for an
+ *  unknown/evicted id or a failed blob read. */
+export type SessionArtifactReply =
+  | {
+      type: 'artifact';
+      protocolVersion: number;
+      requestId: string;
+      available: true;
+      artifact: ArtifactRef;
+      bytes: Uint8Array;
+    }
+  | { type: 'artifact'; protocolVersion: number; requestId: string; available: false };
+
 /** Session → host. The outbound subset the extension reacts to. */
 export type SessionOutbound =
   | { type: 'ready'; protocolVersion: number; capabilities: string[] }
   | { type: 'operation-result'; protocolVersion: number; result: OperationResult }
+  | SessionArtifactReply
   | { type: 'error'; protocolVersion: number; code: string; reason: string };
 
 /** An inbound message as it travels on the wire (version-stamped). L1 commands are

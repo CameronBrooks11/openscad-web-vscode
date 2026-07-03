@@ -7,6 +7,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Export to disk** (epic #8 P6): _Export Model_ command — converts the
+  current preview in the session (STL/3MF/GLB/OFF; SVG/DXF for 2D models via
+  openscad-web's `export` wire command) and saves the exact bytes through a
+  save dialog. Failures are explicit (`no-output` before a first compile,
+  dimensionality mismatches); exports derive from preview-quality geometry
+  (`$preview = true`) until openscad-web#219 lands.
+- **Relative `import()`/`surface()` assets** (#9): the walker now discovers
+  relative asset references and pushes their exact bytes with the project
+  (openscad-web#172), so previews using STL/DXF/DAT/… assets work; a
+  referenced-but-missing asset gets a squiggle on the referencing line instead
+  of a bare engine failure.
+- Vendored session artifact bumped to openscad-web v0.3.1 (L1 protocol **v2**:
+  `export`, `getArtifact`, binary project files).
+
 - **Live preview loop** (epic #8 P4): the `.scad` preview recompiles
   automatically when any `.scad` under the project root is saved or changes on
   disk (debounced; also catches external changes via a file watcher, e.g. a git

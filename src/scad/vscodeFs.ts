@@ -26,5 +26,14 @@ export function vscodeScadFs(root: vscode.Uri): ScadFs {
         return undefined; // not found / unreadable → treat as absent (library or typo)
       }
     },
+    async readBytes(absPath: string): Promise<Uint8Array | undefined> {
+      // Assets are read straight from disk — no editor-buffer preference (a
+      // binary open in an editor is a hex/custom view, not an edit source).
+      try {
+        return await vscode.workspace.fs.readFile(root.with({ path: absPath }));
+      } catch {
+        return undefined;
+      }
+    },
   };
 }

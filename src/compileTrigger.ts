@@ -35,6 +35,12 @@ export class CompileTriggerController implements vscode.Disposable {
     this.saveListener = vscode.workspace.onDidSaveTextDocument((doc) => this.onFsEvent(doc.uri));
   }
 
+  /** The preview currently being kept live, if any (used by export's save
+   *  dialog to default to the project directory). */
+  get activePreview(): ActivePreview | undefined {
+    return this.active;
+  }
+
   /** Adopt `preview` as the live one (called after every successful preview,
    *  manual or triggered), re-arming the watcher when the root changed. */
   track(preview: ActivePreview): void {
