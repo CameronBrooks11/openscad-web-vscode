@@ -121,8 +121,9 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         (_progress, token) =>
           Promise.race([
             SessionPanel.exportArtifact(pick.format, qualityPick.quality),
-            // The wire op can't be aborted, but the user can walk away; a late
-            // settle finds no consumer and is dropped harmlessly.
+            // The wire has only an UNTARGETED cancel (it would also kill
+            // unrelated compiles), so the op keeps running engine-side; the
+            // user walks away and a late settle finds no consumer, harmlessly.
             new Promise<ExportOutcome>((resolve) =>
               token.onCancellationRequested(() => resolve({ ok: false, superseded: true })),
             ),

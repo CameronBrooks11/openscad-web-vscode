@@ -82,7 +82,7 @@ interface BootWaiter {
 }
 
 interface RenderWaiter {
-  resolve: (o: { ok: boolean; error?: string }) => void;
+  resolve: (o: { ok: boolean; error?: string; superseded?: boolean }) => void;
   timer: ReturnType<typeof setTimeout>;
   requestId: string;
 }
@@ -227,7 +227,11 @@ export class SessionPanel {
     if (quality === 'render') {
       const rendered = await this.runRender();
       if (!rendered.ok) {
-        return { ok: false, error: `full render failed: ${rendered.error}` };
+        return {
+          ok: false,
+          superseded: rendered.superseded,
+          error: rendered.error ? `full render failed: ${rendered.error}` : undefined,
+        };
       }
       if (!this.live) return { ok: false, error: 'the session went away during the render' };
     }
@@ -237,8 +241,8 @@ export class SessionPanel {
   /** Trigger a full render and await its kind:'render' terminal (correlated by
    *  the echoed requestId). The render-quality output then becomes what the
    *  export converts — and what the embedded viewer shows. */
-  private runRender(): Promise<{ ok: boolean; error?: string }> {
-    this.settleRender({ ok: false, error: 'superseded by a newer render' });
+  private runRender(): Promise<{ ok: boolean; error?: string; superseded?: boolean }> {
+    this.settleRender({ ok: false, superseded: true });
     return new Promise((resolve) => {
       const waiter: RenderWaiter = {
         resolve,
@@ -257,7 +261,7 @@ export class SessionPanel {
     });
   }
 
-  private settleRender(outcome: { ok: boolean; error?: string }): void {
+  private settleRender(outcome: { ok: boolean; error?: string; superseded?: boolean }): void {
     const w = this.renderWaiter;
     if (!w) return;
     this.renderWaiter = undefined;
@@ -265,7 +269,10 @@ export class SessionPanel {
     w.resolve(outcome);
   }
 
-  private settleRenderIf(waiter: RenderWaiter, outcome: { ok: boolean; error?: string }): void {
+  private settleRenderIf(
+    waiter: RenderWaiter,
+    outcome: { ok: boolean; error?: string; superseded?: boolean },
+  ): void {
     if (this.renderWaiter !== waiter) return;
     this.settleRender(outcome);
   }
@@ -457,9 +464,13 @@ export class SessionPanel {
         // CONSUMED output's (older) revision by design, and must neither settle
         // the compile waiter (an off pass-through export looks exactly like a
         // compiled preview) nor feed the diagnostics accumulator.
-        // A wire-triggered full render (#219): intercept ONLY the terminal
-        // matching our requestId — auto previews and any other render results
-        // flow to the compile logic below unchanged.
+        // A wire-triggered full render (#219): settle the waiter matching our
+        // requestId, then FALL THROUGH — unlike export terminals, this is a
+        // genuine compile-stream result at its true sourceRevision, and it can
+        // be the ONLY success terminal an in-flight compile can settle on (the
+        // engine's shared delayable lets the full render kill the auto
+        // preview). Swallowing it here would starve that waiter into a
+        // spurious 60s "compile timed out" toast.
         if (
           r.kind === 'render' &&
           this.renderWaiter &&
@@ -474,7 +485,6 @@ export class SessionPanel {
           } else {
             this.settleRenderIf(rw, { ok: false, error: 'render was cancelled' });
           }
-          break;
         }
         if (r.kind === 'export') {
           const ew = this.exportWaiter;
