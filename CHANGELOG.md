@@ -12,7 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   only results at the ack-assigned revision — replacing the monotonic-revision
   heuristic and its reload special-cases, and closing the last stale-settle
   window. A push the engine REJECTS (path/size validation) now fails
-  immediately with a clear message instead of a silent 60s timeout.
+  immediately with a clear message instead of a silent 60s timeout — except
+  the FIRST push after a boot/reload, which has no ack baseline to compare
+  against and still times out (a full fix needs an accepted flag on the
+  upstream ack).
 - Cancelling the export progress notification now sends a TARGETED wire cancel
   (openscad-web#226): the in-flight render/export actually stops engine-side,
   and a concurrent save's compile is untouched.

@@ -112,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         { placeHolder: 'Export quality' },
       );
       if (!qualityPick) return;
+      const cancelRef: { cancel?: () => void } = {};
       const outcome = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -120,14 +121,14 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         },
         (_progress, token) =>
           Promise.race([
-            SessionPanel.exportArtifact(pick.format, qualityPick.quality),
-            // A TARGETED wire cancel (upstream #226) kills exactly the
-            // in-flight render/export engine-side; concurrent compiles are
-            // untouched. The waiters settle via their cancelled terminals into
-            // a consumer-less promise, harmlessly.
+            SessionPanel.exportArtifact(pick.format, qualityPick.quality, cancelRef),
+            // A TARGETED wire cancel (upstream #226) kills exactly THIS
+            // command's render/export engine-side; concurrent compiles and
+            // other export commands are untouched. The waiters settle via
+            // their cancelled terminals into a consumer-less promise.
             new Promise<ExportOutcome>((resolve) =>
               token.onCancellationRequested(() => {
-                SessionPanel.cancelInFlightExport();
+                cancelRef.cancel?.();
                 resolve({ ok: false, superseded: true });
               }),
             ),

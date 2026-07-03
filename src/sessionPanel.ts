@@ -207,6 +207,7 @@ export class SessionPanel {
   static exportArtifact(
     format: SessionExportFormat,
     quality: 'preview' | 'render' = 'preview',
+    cancelRef?: { cancel?: () => void },
   ): Promise<ExportOutcome> {
     const panel = SessionPanel.current;
     if (!panel || !panel.live) {
@@ -215,29 +216,28 @@ export class SessionPanel {
         error: 'No live OpenSCAD preview — run "Preview .scad File" first.',
       });
     }
-    return panel.runQualityExport(format, quality);
-  }
-
-  /** Cancel whatever the in-flight quality export is doing engine-side — the
-   *  render phase or the export conversion — via a TARGETED wire cancel
-   *  (upstream #226), so a concurrent save's compile is untouched. The killed
-   *  op terminates as a cancelled result and the waiters settle through their
-   *  normal paths. */
-  static cancelInFlightExport(): void {
-    const panel = SessionPanel.current;
-    if (!panel || !panel.live) return;
-    const requestId = panel.renderWaiter?.requestId ?? panel.exportWaiter?.requestId;
-    if (requestId !== undefined) panel.send({ type: 'cancel', requestId });
+    return panel.runQualityExport(format, quality, cancelRef);
   }
 
   /** Optionally run a FULL render first (#219 — `$preview = false`, so the
-   *  export converts render-quality geometry), then the export. */
+   *  export converts render-quality geometry), then the export. `cancelRef`
+   *  (if given) is populated with a canceller scoped to THIS invocation's
+   *  operations — a TARGETED wire cancel (upstream #226), so neither a
+   *  concurrent save's compile nor another export command's operations are
+   *  touched (late cancels of finished ops are engine-side no-ops). */
   private async runQualityExport(
     format: SessionExportFormat,
     quality: 'preview' | 'render',
+    cancelRef?: { cancel?: () => void },
   ): Promise<ExportOutcome> {
+    const myIds: string[] = [];
+    if (cancelRef) {
+      cancelRef.cancel = () => {
+        for (const requestId of myIds) this.send({ type: 'cancel', requestId });
+      };
+    }
     if (quality === 'render') {
-      const rendered = await this.runRender();
+      const rendered = await this.runRender(myIds);
       if (!rendered.ok) {
         return {
           ok: false,
@@ -247,18 +247,22 @@ export class SessionPanel {
       }
       if (!this.live) return { ok: false, error: 'the session went away during the render' };
     }
-    return this.runExport(format);
+    return this.runExport(format, myIds);
   }
 
   /** Trigger a full render and await its kind:'render' terminal (correlated by
    *  the echoed requestId). The render-quality output then becomes what the
    *  export converts — and what the embedded viewer shows. */
-  private runRender(): Promise<{ ok: boolean; error?: string; superseded?: boolean }> {
+  private runRender(
+    myIds?: string[],
+  ): Promise<{ ok: boolean; error?: string; superseded?: boolean }> {
     this.settleRender({ ok: false, superseded: true });
     return new Promise((resolve) => {
+      const requestId = `render-cmd-${++this.requestSeq}`;
+      myIds?.push(requestId);
       const waiter: RenderWaiter = {
         resolve,
-        requestId: `render-cmd-${++this.requestSeq}`,
+        requestId,
         timer: setTimeout(
           () =>
             this.settleRenderIf(waiter, {
@@ -289,14 +293,16 @@ export class SessionPanel {
     this.settleRender(outcome);
   }
 
-  private runExport(format: SessionExportFormat): Promise<ExportOutcome> {
+  private runExport(format: SessionExportFormat, myIds?: string[]): Promise<ExportOutcome> {
     // One export at a time: a newer request supersedes the in-flight one
     // (silently — a re-trigger is not a failure).
     this.settleExport({ ok: false, superseded: true });
     return new Promise<ExportOutcome>((resolve) => {
+      const requestId = `exp-cmd-${++this.requestSeq}`;
+      myIds?.push(requestId);
       const waiter: ExportWaiter = {
         resolve,
-        requestId: `exp-cmd-${++this.requestSeq}`,
+        requestId,
         timer: setTimeout(
           () =>
             this.settleExportIf(waiter, {
@@ -534,18 +540,28 @@ export class SessionPanel {
         break;
       }
       case 'project-ack': {
+        // Classify + track BEFORE the waiter match: a superseded push's ack
+        // (no matching waiter) must still advance the baseline, or a following
+        // REJECTED push would evade detection AND bind the waiter to the
+        // superseded push's revision — accepting its results as this push's.
+        // Safe across reloads: the webview pipe is FIFO, so old-engine acks
+        // precede the new `ready`, which resets the baseline.
+        const rejected =
+          this.lastAckedRevision !== undefined && msg.sourceRevision <= this.lastAckedRevision;
+        if (!rejected) this.lastAckedRevision = msg.sourceRevision;
         const w = this.compileWaiter;
         if (!w || w.settled || msg.requestId !== w.requestId) break;
-        if (this.lastAckedRevision !== undefined && msg.sourceRevision <= this.lastAckedRevision) {
+        if (rejected) {
           // The engine did not advance its revision: it REJECTED the push
           // (path/size validation — previously invisible on the wire, a silent
-          // 60s timeout). Surface it immediately.
+          // 60s timeout). NOTE: undetectable for the FIRST push after a
+          // boot/reload (no baseline) — that case still times out; a full fix
+          // needs an accepted flag on the upstream ack.
           this.settleCompile({
             error: 'the session rejected the project push (path or size validation failed)',
           });
           break;
         }
-        this.lastAckedRevision = msg.sourceRevision;
         w.expectedRevision = msg.sourceRevision;
         w.outcome.diagnostics = []; // markers from any earlier push are void
         break;
