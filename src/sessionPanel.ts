@@ -83,10 +83,10 @@ interface BootWaiter {
 interface ExportWaiter {
   resolve: (o: ExportOutcome) => void;
   timer: ReturnType<typeof setTimeout>;
-  /** The requested format — a belt against cross-export result routing: the
-   *  wire has no export↔result correlation id (upstream follow-up), so a stale
-   *  export's terminal must at least not settle a different-format waiter. */
-  format: SessionExportFormat;
+  /** Correlates this export with its terminal result: the session echoes it on
+   *  every terminal of the operation (upstream #223), so a superseded export's
+   *  late result can never be attributed to this waiter. */
+  requestId: string;
 }
 
 interface CompileWaiter {
@@ -213,7 +213,7 @@ export class SessionPanel {
     return new Promise<ExportOutcome>((resolve) => {
       const waiter: ExportWaiter = {
         resolve,
-        format,
+        requestId: `exp-cmd-${++this.requestSeq}`,
         timer: setTimeout(
           () =>
             this.settleExportIf(waiter, {
@@ -224,7 +224,7 @@ export class SessionPanel {
         ),
       };
       this.exportWaiter = waiter;
-      this.send({ type: 'export', format });
+      this.send({ type: 'export', format, requestId: waiter.requestId });
     });
   }
 
@@ -392,12 +392,10 @@ export class SessionPanel {
         if (r.kind === 'export') {
           const ew = this.exportWaiter;
           if (!ew) break;
+          // Correlate by the echoed requestId (#223): a superseded export's
+          // terminal — success OR failure — can never settle this waiter.
+          if (r.requestId !== ew.requestId) break;
           if (r.status === 'success' && r.artifact) {
-            // Format belt: the wire has no export↔result correlation id yet, so
-            // a SUPERSEDED export's late success must not feed the newer waiter
-            // — its artifact format differs whenever the formats differ. (Same-
-            // format supersession remains ambiguous until the upstream id.)
-            if (r.artifact.format !== ew.format) break;
             void this.fetchExportedArtifact(ew, r.artifact);
           } else if (r.status === 'error') {
             // Append the engine log tail: "Render failed" alone is undiagnosable.

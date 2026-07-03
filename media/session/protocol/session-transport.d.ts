@@ -44,6 +44,7 @@ export type SessionInbound = {
 } | {
     type: 'export';
     format: SessionExportFormat;
+    requestId?: string;
 } | {
     type: 'getArtifact';
     artifactId: string;
