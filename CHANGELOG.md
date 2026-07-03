@@ -5,6 +5,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Live preview loop** (epic #8 P4): the `.scad` preview recompiles
+  automatically when any `.scad` under the project root is saved or changes on
+  disk (debounced; also catches external changes via a file watcher, e.g. a git
+  checkout or creating a previously-missing dependency). Controlled by the new
+  `openscadWeb.compileTrigger` setting (`onSave` default, `manual` to opt out).
+  Closing the session panel stops the loop until the next manual preview.
+- **Inline compiler diagnostics**: compile errors/warnings from the WASM engine
+  land as squiggles + Problems-panel entries on the right files (engine `/home`
+  paths are reverse-mapped to workspace URIs), replacing the coarse toast as the
+  error surface. The walker's "import can't be previewed" issues are now
+  per-line warnings on the offending directive instead of one aggregate toast.
+
+### Changed
+
+- Compile results are now correlated by the engine's `sourceRevision`, so a
+  late result from a superseded compile can no longer settle (or mislabel) the
+  current one under rapid re-triggers.
+- Revealing the session panel no longer steals focus from the editor (on-save
+  recompiles would otherwise interrupt typing).
+
 ## [0.1.0] - 2026-07-02
 
 First public release — packaged `.vsix` distributed via GitHub Releases (not on

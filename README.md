@@ -9,11 +9,14 @@ and **compile multi-file `.scad` projects in the webview** via the openscad-web
 WASM engine (**no native OpenSCAD install**). Powered by the standalone viewer +
 session engine built in [**openscad-web**](https://github.com/CameronBrooks11/openscad-web).
 
-> **Status.** The read-only OFF viewer and manual `.scad` compile-preview both
-> work and are covered by Extension Development Host tests (message round-trip,
-> protocol version pin, and a real WASM cube→OFF compile inside the webview).
-> **Automatic on-save preview + inline compiler diagnostics are next** — tracked
-> by epic [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
+> **Status.** The read-only OFF viewer and live `.scad` preview both work and are
+> covered by Extension Development Host tests (message round-trip, protocol
+> version pin, a real WASM cube→OFF compile inside the webview, and the
+> fix-on-save diagnostics loop). The preview **recompiles automatically on save**
+> (`openscadWeb.compileTrigger`, set to `manual` to opt out) and **compiler errors
+> show as squiggles** in the Problems panel. Export-to-disk and user library
+> paths are next — tracked by epic
+> [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
 
 ## Install
 

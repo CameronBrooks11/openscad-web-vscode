@@ -42,6 +42,24 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "OpenSCAD Web Viewer",
+      "properties": {
+        "openscadWeb.compileTrigger": {
+          "type": "string",
+          "enum": [
+            "onSave",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "Recompile the previewed project when any .scad file under its root is saved or changes on disk.",
+            "Recompile only via the 'Preview .scad File' command."
+          ],
+          "default": "onSave",
+          "description": "When to recompile the live .scad preview after it has been opened."
+        }
+      }
+    },
     "commands": [
       {
         "command": "openscadWebViewer.showFixture",
