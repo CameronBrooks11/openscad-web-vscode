@@ -11,11 +11,13 @@ session engine built in [**openscad-web**](https://github.com/CameronBrooks11/op
 
 > **Status.** The read-only OFF viewer and live `.scad` preview both work and are
 > covered by Extension Development Host tests (message round-trip, protocol
-> version pin, a real WASM cube→OFF compile inside the webview, and the
-> fix-on-save diagnostics loop). The preview **recompiles automatically on save**
-> (`openscadWeb.compileTrigger`, set to `manual` to opt out) and **compiler errors
-> show as squiggles** in the Problems panel. Export-to-disk and user library
-> paths are next — tracked by epic
+> version pin, a real WASM cube→OFF compile inside the webview, the fix-on-save
+> diagnostics loop, and an STL export byte round-trip). The preview **recompiles
+> automatically on save** (`openscadWeb.compileTrigger`, set to `manual` to opt
+> out), **compiler errors show as squiggles** in the Problems panel, the model
+> **exports to STL/3MF/GLB/OFF** (2D: SVG/DXF) from the preview, and relative
+> `import()`/`surface()` **assets are pushed with the project** (missing ones get
+> a diagnostic). User library paths (OPENSCADPATH) remain — tracked by epic
 > [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
 
 ## Install
@@ -44,6 +46,7 @@ Works in VS Code, VSCodium, and Cursor. Or [run it from source](#try-it-locally)
 | `OpenSCAD Viewer: Show Fixture Geometry` | Opens the viewer on a bundled fixture cube.                                                                    |
 | `OpenSCAD Viewer: Preview .off File`     | Opens the viewer on the active / selected `.off`.                                                              |
 | `OpenSCAD Viewer: Preview .scad File`    | Compiles the active / selected `.scad` (+ its relative `use`/`include` closure) in the webview and renders it. |
+| `OpenSCAD Viewer: Export Model (STL, …)` | Converts the current preview (STL/3MF/GLB/OFF; SVG/DXF for 2D) and saves it via a save dialog.                 |
 | `OpenSCAD Viewer: Set Camera View`       | Sets the camera (Front / Top / Diagonal / …).                                                                  |
 
 ## How it works

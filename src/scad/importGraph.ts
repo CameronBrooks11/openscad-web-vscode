@@ -13,15 +13,18 @@
 // A VS Code adapter (backing `ScadFs` with `workspace.fs`) lands with the
 // compile orchestration phase.
 //
-// Known limitations (tracked for follow-up):
-//   - Only `use`/`include` directives are followed. Relative `import("x.stl")` /
-//     `surface("d.dat")` asset dependencies are NOT discovered, so a project
-//     that imports such assets compiles in the openscad-web app but not here.
-//     Binary assets also need the text-only project contract to gain binary
-//     support upstream (openscad-web#172).
-//   - Path mapping uses the directive's literal casing. On a case-insensitive
-//     host (Windows/macOS) this can push two casings of one file into the
-//     case-sensitive `/home` VFS; canonicalize against disk before shipping there.
+// Asset dependencies (#9): relative `import("x.stl")` / `surface("d.dat")`
+// references are discovered too and pushed as binary `{path, bytes}` files
+// (upstream #172); a referenced-but-missing asset surfaces as a diagnostic
+// instead of a bare engine failure. Assets are found by scanning string
+// literals with comments blanked — an `import("…")`-shaped string nested
+// inside another string can produce a false missing-asset warning (harmless).
+//
+// Casing: paths map under the directive's LITERAL casing, which is
+// self-consistent — the engine resolves exactly the string the directive
+// contains, so on a case-insensitive host two casings of one file are pushed
+// twice and BOTH spellings resolve in the case-sensitive `/home` VFS. (On a
+// case-sensitive host different casings are genuinely different files.)
 
 import * as path from 'node:path';
 
@@ -33,28 +36,34 @@ const VFS_ROOT = '/home';
 // avoids matching identifiers like `reuse`.
 const DIRECTIVE_RE = /\b(?:use|include)\s*<([^>]+)>/g;
 
+// Relative asset references: `import("part.stl")` / `surface("map.dat")`, with
+// the optional named form `import(file = "part.stl")`. Scanned with comments
+// blanked but STRINGS KEPT (the path is the string).
+const ASSET_RE = /\b(?:import|surface)\s*\(\s*(?:file\s*=\s*)?"([^"]+)"/g;
+
 /** The minimal filesystem the walker needs. `readFile` is `undefined` if absent. */
 export interface ScadFs {
   /** Read a UTF-8 file by absolute POSIX path; `undefined` if it does not exist. */
   readFile(absPath: string): Promise<string | undefined>;
+  /** Read a file's raw bytes by absolute POSIX path; `undefined` if absent. */
+  readBytes(absPath: string): Promise<Uint8Array | undefined>;
 }
 
-/** A file to push into the engine VFS. */
-export interface ProjectFile {
-  /** Engine VFS path, e.g. `/home/src/main.scad`. */
-  path: string;
-  content: string;
-}
+/** A file to push into the engine VFS: editable text (`.scad` sources) or a
+ *  binary asset's exact bytes (`import()`/`surface()` targets — #9/#172). */
+export type ProjectFile =
+  | { path: string; content: string; bytes?: never }
+  | { path: string; bytes: Uint8Array; content?: never };
 
 /** A non-fatal problem found while walking (surfaced as a diagnostic later). */
 export interface ImportIssue {
   /** VFS path of the file containing the directive. */
   fromPath: string;
-  /** The raw text inside the angle brackets. */
+  /** The raw text inside the angle brackets / the asset path string. */
   spec: string;
   /** 1-based line of the directive within `fromPath`. */
   line: number;
-  kind: 'escapes-root';
+  kind: 'escapes-root' | 'missing-asset';
   message: string;
 }
 
@@ -124,6 +133,40 @@ export async function walkImportGraph(
       }
       await visit(candidate); // recurses if it exists; no-ops if it's a library/missing.
     }
+
+    // Asset references (#9): push each relative import()/surface() target's
+    // bytes so the engine's synchronous FS finds it at compile time. Assets do
+    // not recurse.
+    for (const { spec, line } of extractAssetRefs(content)) {
+      const candidate = path.posix.normalize(path.posix.resolve(dir, spec));
+      const assetVfs = toVfs(root, candidate);
+      if (assetVfs === null) {
+        issues.push({
+          fromPath: vfs,
+          spec,
+          line,
+          kind: 'escapes-root',
+          message:
+            `'${spec}' resolves outside the project root and can't be previewed` +
+            (spec.includes('..') ? ' — open its top-level folder as the workspace root.' : '.'),
+        });
+        continue;
+      }
+      if (visited.has(candidate)) continue; // already pushed (or is a walked source)
+      visited.add(candidate);
+      const bytes = await fs.readBytes(candidate);
+      if (bytes === undefined) {
+        issues.push({
+          fromPath: vfs,
+          spec,
+          line,
+          kind: 'missing-asset',
+          message: `'${spec}' is referenced here but was not found — the preview's import will fail.`,
+        });
+        continue;
+      }
+      files.push({ path: assetVfs, bytes });
+    }
   }
 
   await visit(entry);
@@ -143,11 +186,20 @@ function stripTrailingSlash(p: string): string {
 
 /** Extract `use`/`include` specs with 1-based line numbers, ignoring comments/strings. */
 function extractDirectives(content: string): { spec: string; line: number }[] {
-  const code = blankCommentsAndStrings(content);
+  return extract(blankNonCode(content, true), DIRECTIVE_RE);
+}
+
+/** Extract relative `import()`/`surface()` asset paths (#9), ignoring comments
+ *  (strings are kept — the path IS the string). */
+function extractAssetRefs(content: string): { spec: string; line: number }[] {
+  return extract(blankNonCode(content, false), ASSET_RE);
+}
+
+function extract(code: string, re: RegExp): { spec: string; line: number }[] {
   const out: { spec: string; line: number }[] = [];
-  DIRECTIVE_RE.lastIndex = 0;
+  re.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = DIRECTIVE_RE.exec(code)) !== null) {
+  while ((m = re.exec(code)) !== null) {
     const spec = m[1].trim();
     if (spec) out.push({ spec, line: lineAt(code, m.index) });
   }
@@ -155,11 +207,12 @@ function extractDirectives(content: string): { spec: string; line: number }[] {
 }
 
 /**
- * Replace the contents of `//` / `/* *\/` comments and `"…"` strings with spaces,
- * preserving newlines and total length so directive offsets/line numbers stay
- * valid. Avoids matching a `use`/`include` that appears inside a comment/string.
+ * Replace the contents of `//` / `/* *\/` comments — and, when `blankStrings`,
+ * `"…"` strings — with spaces, preserving newlines and total length so offsets
+ * and line numbers stay valid. Strings are always TRACKED (so `//` inside one
+ * is not a comment) even when their content is kept.
  */
-function blankCommentsAndStrings(src: string): string {
+function blankNonCode(src: string, blankStrings: boolean): string {
   let out = '';
   let mode: 'code' | 'line' | 'block' | 'string' = 'code';
   for (let i = 0; i < src.length; i++) {
@@ -176,7 +229,7 @@ function blankCommentsAndStrings(src: string): string {
         i++;
       } else if (c === '"') {
         mode = 'string';
-        out += ' ';
+        out += blankStrings ? ' ' : '"';
       } else {
         out += c;
       }
@@ -198,13 +251,15 @@ function blankCommentsAndStrings(src: string): string {
     } else {
       // string
       if (c === '\\' && c2) {
-        out += '  ';
+        out += blankStrings ? '  ' : c + c2;
         i++;
       } else if (c === '"') {
         mode = 'code';
-        out += ' ';
-      } else {
+        out += blankStrings ? ' ' : '"';
+      } else if (blankStrings) {
         out += c === '\n' ? '\n' : ' ';
+      } else {
+        out += c;
       }
     }
   }

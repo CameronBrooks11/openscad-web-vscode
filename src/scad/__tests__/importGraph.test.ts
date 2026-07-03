@@ -3,11 +3,18 @@ import assert from 'node:assert/strict';
 
 import { walkImportGraph, type ScadFs } from '../importGraph';
 
-/** In-memory ScadFs keyed by absolute POSIX path. */
-function fakeFs(files: Record<string, string>): ScadFs {
+/** In-memory ScadFs keyed by absolute POSIX path. String values are text files;
+ *  Uint8Array values are binary assets (readable only via readBytes). */
+function fakeFs(files: Record<string, string | Uint8Array>): ScadFs {
   return {
     async readFile(p) {
-      return Object.prototype.hasOwnProperty.call(files, p) ? files[p] : undefined;
+      const v = Object.prototype.hasOwnProperty.call(files, p) ? files[p] : undefined;
+      return typeof v === 'string' ? v : undefined;
+    },
+    async readBytes(p) {
+      const v = Object.prototype.hasOwnProperty.call(files, p) ? files[p] : undefined;
+      if (v instanceof Uint8Array) return v;
+      return typeof v === 'string' ? Uint8Array.from(v, (c) => c.charCodeAt(0)) : undefined;
     },
   };
 }
@@ -179,4 +186,64 @@ test('use with no space and spaces inside the bracket parse', async () => {
     '/p/m.scad',
   );
   assert.deepEqual(vfsPaths(c), ['/home/a.scad', '/home/b.scad', '/home/m.scad']);
+});
+
+test('relative import()/surface() assets are pushed as bytes (#9)', async () => {
+  const stl = Uint8Array.from([1, 2, 3, 4]);
+  const dat = Uint8Array.from([53, 54]);
+  const c = await walkImportGraph(
+    fakeFs({
+      '/proj/main.scad': 'import("assets/part.stl");\nsurface(file = "map.dat");',
+      '/proj/assets/part.stl': stl,
+      '/proj/map.dat': dat,
+    }),
+    '/proj',
+    '/proj/main.scad',
+  );
+  assert.deepEqual(vfsPaths(c), ['/home/assets/part.stl', '/home/main.scad', '/home/map.dat']);
+  const asset = c.files.find((f) => f.path === '/home/assets/part.stl');
+  assert.ok(asset && 'bytes' in asset && asset.bytes instanceof Uint8Array);
+  assert.deepEqual(Array.from(asset.bytes!), [1, 2, 3, 4]);
+  assert.deepEqual(c.issues, []);
+});
+
+test('a missing asset surfaces a missing-asset issue with its line (#9)', async () => {
+  const c = await walkImportGraph(
+    fakeFs({ '/proj/main.scad': 'cube(1);\nimport("nope.stl");' }),
+    '/proj',
+    '/proj/main.scad',
+  );
+  assert.deepEqual(vfsPaths(c), ['/home/main.scad']);
+  assert.equal(c.issues.length, 1);
+  assert.equal(c.issues[0].kind, 'missing-asset');
+  assert.equal(c.issues[0].line, 2);
+  assert.equal(c.issues[0].spec, 'nope.stl');
+});
+
+test('asset refs inside comments are ignored; ..-escaping assets are diagnosed', async () => {
+  const c = await walkImportGraph(
+    fakeFs({
+      '/proj/sub/main.scad':
+        '// import("ghost.stl")\n/* surface("g.dat") */\nimport("../../out.stl");',
+    }),
+    '/proj/sub',
+    '/proj/sub/main.scad',
+  );
+  assert.deepEqual(vfsPaths(c), ['/home/main.scad']);
+  assert.equal(c.issues.length, 1);
+  assert.equal(c.issues[0].kind, 'escapes-root');
+  assert.equal(c.issues[0].spec, '../../out.stl');
+});
+
+test('an asset referenced from two files is pushed once', async () => {
+  const c = await walkImportGraph(
+    fakeFs({
+      '/proj/main.scad': 'use <lib.scad>\nimport("p.stl");',
+      '/proj/lib.scad': 'import("p.stl");',
+      '/proj/p.stl': Uint8Array.from([9]),
+    }),
+    '/proj',
+    '/proj/main.scad',
+  );
+  assert.deepEqual(vfsPaths(c), ['/home/lib.scad', '/home/main.scad', '/home/p.stl']);
 });
