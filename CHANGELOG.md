@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-03
+
 ### Changed
 
 - Exports are now correlated with their results by a `requestId` the session

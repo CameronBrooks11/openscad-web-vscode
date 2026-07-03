@@ -2,7 +2,7 @@
   "name": "openscad-web-vscode",
   "displayName": "OpenSCAD Web Viewer",
   "description": "Preview OpenSCAD models in a VS Code webview — render OFF meshes and live-compile multi-file .scad projects via the openscad-web WASM engine (no native install).",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "cameronbrooks11",
   "license": "GPL-3.0-or-later",
   "private": true,
