@@ -17,7 +17,7 @@ export declare const SESSION_MAX_PATH_LENGTH = 4096;
 /** Cap for opaque ids (`artifactId` is a v4 UUID, `requestId` host-chosen). */
 export declare const SESSION_MAX_ID_LENGTH = 256;
 /** The inbound command types, advertised in `ready` so a host can feature-detect. */
-export declare const SESSION_COMMANDS: readonly ["setProject", "updateFile", "removeFile", "setEntryPoint", "export", "getArtifact", "cancel", "dispose"];
+export declare const SESSION_COMMANDS: readonly ["setProject", "updateFile", "removeFile", "setEntryPoint", "render", "export", "getArtifact", "cancel", "dispose"];
 /** The export formats a host may request (#216) — the app's own format set.
  *  3D: stl/off/glb/3mf; 2D: svg/dxf. The session exports the CURRENT model's
  *  dimensionality; a mismatched request (e.g. `svg` for a 3D model) terminates
@@ -41,6 +41,9 @@ export type SessionInbound = {
 } | {
     type: 'setEntryPoint';
     path: string;
+} | {
+    type: 'render';
+    requestId?: string;
 } | {
     type: 'export';
     format: SessionExportFormat;

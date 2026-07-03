@@ -63,6 +63,7 @@ export interface CompileOutcome {
 const BOOT_TIMEOUT_MS = 60_000; // cold WASM + FS init is slower than the L0 viewer.
 const COMPILE_TIMEOUT_MS = 60_000; // a single compile (syntaxCheck + preview) backstop.
 const EXPORT_TIMEOUT_MS = 120_000; // format conversion re-renders in the worker.
+const RENDER_TIMEOUT_MS = 300_000; // a full ($preview=false) render can be slow.
 const ARTIFACT_FETCH_TIMEOUT_MS = 15_000; // bytes round-trip after the export result.
 
 /** The result of a wire export (P6): the artifact identity + its exact bytes. */
@@ -78,6 +79,12 @@ export interface ExportOutcome {
 interface BootWaiter {
   resolve: (o: BootOutcome) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface RenderWaiter {
+  resolve: (o: { ok: boolean; error?: string }) => void;
+  timer: ReturnType<typeof setTimeout>;
+  requestId: string;
 }
 
 interface ExportWaiter {
@@ -122,6 +129,8 @@ export class SessionPanel {
   private compileWaiter?: CompileWaiter;
   /** The in-flight export awaiting its terminal result + bytes, if any. */
   private exportWaiter?: ExportWaiter;
+  /** The in-flight full render awaiting its kind:'render' terminal, if any. */
+  private renderWaiter?: RenderWaiter;
   /** Pending getArtifact replies, keyed by requestId. */
   private readonly artifactWaiters = new Map<
     string,
@@ -195,7 +204,10 @@ export class SessionPanel {
    * → the correlated `artifact` reply. Requires a LIVE session (never boots one
    * — an export without a previewed model would only fail with `no-output`).
    */
-  static exportArtifact(format: SessionExportFormat): Promise<ExportOutcome> {
+  static exportArtifact(
+    format: SessionExportFormat,
+    quality: 'preview' | 'render' = 'preview',
+  ): Promise<ExportOutcome> {
     const panel = SessionPanel.current;
     if (!panel || !panel.live) {
       return Promise.resolve({
@@ -203,7 +215,59 @@ export class SessionPanel {
         error: 'No live OpenSCAD preview — run "Preview .scad File" first.',
       });
     }
-    return panel.runExport(format);
+    return panel.runQualityExport(format, quality);
+  }
+
+  /** Optionally run a FULL render first (#219 — `$preview = false`, so the
+   *  export converts render-quality geometry), then the export. */
+  private async runQualityExport(
+    format: SessionExportFormat,
+    quality: 'preview' | 'render',
+  ): Promise<ExportOutcome> {
+    if (quality === 'render') {
+      const rendered = await this.runRender();
+      if (!rendered.ok) {
+        return { ok: false, error: `full render failed: ${rendered.error}` };
+      }
+      if (!this.live) return { ok: false, error: 'the session went away during the render' };
+    }
+    return this.runExport(format);
+  }
+
+  /** Trigger a full render and await its kind:'render' terminal (correlated by
+   *  the echoed requestId). The render-quality output then becomes what the
+   *  export converts — and what the embedded viewer shows. */
+  private runRender(): Promise<{ ok: boolean; error?: string }> {
+    this.settleRender({ ok: false, error: 'superseded by a newer render' });
+    return new Promise((resolve) => {
+      const waiter: RenderWaiter = {
+        resolve,
+        requestId: `render-cmd-${++this.requestSeq}`,
+        timer: setTimeout(
+          () =>
+            this.settleRenderIf(waiter, {
+              ok: false,
+              error: `render timed out after ${RENDER_TIMEOUT_MS}ms`,
+            }),
+          RENDER_TIMEOUT_MS,
+        ),
+      };
+      this.renderWaiter = waiter;
+      this.send({ type: 'render', requestId: waiter.requestId });
+    });
+  }
+
+  private settleRender(outcome: { ok: boolean; error?: string }): void {
+    const w = this.renderWaiter;
+    if (!w) return;
+    this.renderWaiter = undefined;
+    clearTimeout(w.timer);
+    w.resolve(outcome);
+  }
+
+  private settleRenderIf(waiter: RenderWaiter, outcome: { ok: boolean; error?: string }): void {
+    if (this.renderWaiter !== waiter) return;
+    this.settleRender(outcome);
   }
 
   private runExport(format: SessionExportFormat): Promise<ExportOutcome> {
@@ -359,8 +423,12 @@ export class SessionPanel {
           this.compileWaiter.minRevision = 0;
           this.compileWaiter.acceptedRevision = -1;
         }
-        // A reload also drops any in-flight export on the floor engine-side —
-        // settle it now instead of pinning a progress toast for 120s.
+        // A reload also drops any in-flight render/export on the floor
+        // engine-side — settle them now instead of pinning a progress toast.
+        this.settleRender({
+          ok: false,
+          error: 'the session reloaded during the render — try again',
+        });
         this.settleExport({
           ok: false,
           error: 'the session reloaded during the export — try again',
@@ -389,6 +457,25 @@ export class SessionPanel {
         // CONSUMED output's (older) revision by design, and must neither settle
         // the compile waiter (an off pass-through export looks exactly like a
         // compiled preview) nor feed the diagnostics accumulator.
+        // A wire-triggered full render (#219): intercept ONLY the terminal
+        // matching our requestId — auto previews and any other render results
+        // flow to the compile logic below unchanged.
+        if (
+          r.kind === 'render' &&
+          this.renderWaiter &&
+          r.requestId === this.renderWaiter.requestId
+        ) {
+          const rw = this.renderWaiter;
+          if (r.status === 'success') {
+            this.settleRenderIf(rw, { ok: true });
+          } else if (r.status === 'error') {
+            const logTail = r.logText ? `\n${r.logText.slice(-600)}` : '';
+            this.settleRenderIf(rw, { ok: false, error: `${r.code}: ${r.reason}${logTail}` });
+          } else {
+            this.settleRenderIf(rw, { ok: false, error: 'render was cancelled' });
+          }
+          break;
+        }
         if (r.kind === 'export') {
           const ew = this.exportWaiter;
           if (!ew) break;
@@ -490,6 +577,7 @@ export class SessionPanel {
     // not a failure (mirrors the viewer's closedByUser handling).
     if (!this.bootOutcome) this.settleBoot({ closedByUser: true });
     this.settleCompile({ closedByUser: true });
+    this.settleRender({ ok: false, error: 'the session panel was closed' });
     this.settleExport({ ok: false, error: 'the session panel was closed' });
     this.disposables.forEach((d) => d.dispose());
     SessionPanel.current = undefined;
