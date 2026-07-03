@@ -148,5 +148,13 @@ describe('OpenSCAD Web Session — EDH boot', () => {
     assert.strictEqual(exported.artifact?.format, 'stl', 'export did not produce an STL');
     assert.ok(exported.bytes instanceof Uint8Array, 'bytes did not arrive as a Uint8Array');
     assert.ok(exported.bytes.byteLength > 0, 'exported STL is empty');
+
+    // Render-quality export (#219 / openscad-web v0.3.3): a full $preview=false
+    // render runs in the session first, then the conversion — end to end over
+    // the real webview channel.
+    const rendered = await api.exportSession('stl', 'render');
+    assert.strictEqual(rendered.ok, true, `render-quality export failed: ${rendered.error}`);
+    assert.strictEqual(rendered.artifact?.format, 'stl', 'no STL from the render-quality export');
+    assert.ok(rendered.bytes!.byteLength > 0, 'render-quality STL is empty');
   });
 });

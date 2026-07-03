@@ -38,6 +38,7 @@ export type SessionInbound =
   | { type: 'updateFile'; path: string; content: string }
   | { type: 'removeFile'; path: string }
   | { type: 'setEntryPoint'; path: string }
+  | { type: 'render'; requestId?: string }
   | { type: 'export'; format: SessionExportFormat; requestId?: string }
   | { type: 'getArtifact'; artifactId: string; requestId: string }
   | { type: 'cancel' }

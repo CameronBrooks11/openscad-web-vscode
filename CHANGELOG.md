@@ -5,6 +5,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Render-quality exports** (openscad-web#219, vendored v0.3.3): the Export
+  Model command now asks for quality — _Full render_ triggers a
+  `$preview = false` render in the session first (the viewer shows it too),
+  so models gating detail on `$preview` export their real geometry; _Preview
+  mesh_ stays the fast path.
+
 ## [0.2.1] - 2026-07-03
 
 ### Changed

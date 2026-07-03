@@ -24,8 +24,12 @@ export interface ExtensionApi {
   bootSession(): Promise<BootOutcome>;
   /** Push a project to the session and await the terminal compile outcome (P3). */
   compileSession(files: ProjectFile[], entryPoint?: string): Promise<CompileOutcome>;
-  /** Export the current preview and fetch the exact bytes (P6). */
-  exportSession(format: SessionExportFormat): Promise<ExportOutcome>;
+  /** Export the current preview and fetch the exact bytes (P6). `quality:
+   *  'render'` runs a full ($preview=false) render first (#219). */
+  exportSession(
+    format: SessionExportFormat,
+    quality?: 'preview' | 'render',
+  ): Promise<ExportOutcome>;
 }
 
 export function activate(context: vscode.ExtensionContext): ExtensionApi {
@@ -92,17 +96,34 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         { placeHolder: 'Export the current preview as…' },
       );
       if (!pick) return;
+      const qualityPick = await vscode.window.showQuickPick(
+        [
+          {
+            label: 'Full render',
+            description: 'accurate ($preview = false) — can take a while',
+            quality: 'render' as const,
+          },
+          {
+            label: 'Preview mesh',
+            description: 'fast — exactly what the viewer currently shows',
+            quality: 'preview' as const,
+          },
+        ],
+        { placeHolder: 'Export quality' },
+      );
+      if (!qualityPick) return;
       const outcome = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Exporting ${pick.label}…`,
+          title: `Exporting ${pick.label}${qualityPick.quality === 'render' ? ' (full render)' : ''}…`,
           cancellable: true,
         },
         (_progress, token) =>
           Promise.race([
-            SessionPanel.exportArtifact(pick.format),
-            // The wire op can't be aborted, but the user can walk away; a late
-            // settle finds no consumer and is dropped harmlessly.
+            SessionPanel.exportArtifact(pick.format, qualityPick.quality),
+            // The wire has only an UNTARGETED cancel (it would also kill
+            // unrelated compiles), so the op keeps running engine-side; the
+            // user walks away and a late settle finds no consumer, harmlessly.
             new Promise<ExportOutcome>((resolve) =>
               token.onCancellationRequested(() => resolve({ ok: false, superseded: true })),
             ),
@@ -149,7 +170,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     setView: (view) => ViewerPanel.applyNamedView(view),
     bootSession: () => SessionPanel.boot(context),
     compileSession: (files, entryPoint) => SessionPanel.compile(context, files, entryPoint),
-    exportSession: (format) => SessionPanel.exportArtifact(format),
+    exportSession: (format, quality) => SessionPanel.exportArtifact(format, quality),
   };
 }
 
