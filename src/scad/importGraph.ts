@@ -36,10 +36,40 @@ const VFS_ROOT = '/home';
 // avoids matching identifiers like `reuse`.
 const DIRECTIVE_RE = /\b(?:use|include)\s*<([^>]+)>/g;
 
-// Relative asset references: `import("part.stl")` / `surface("map.dat")`, with
-// the optional named form `import(file = "part.stl")`. Scanned with comments
-// blanked but STRINGS KEPT (the path is the string).
-const ASSET_RE = /\b(?:import|surface)\s*\(\s*(?:file\s*=\s*)?"([^"]+)"/g;
+// Relative asset references: `import("part.stl")` / `surface("map.dat")`. The
+// call's argument list is captured, then the path is the `file = "…"` named arg
+// anywhere in it, else a leading positional string — so
+// `import(convexity = 3, file = "p.stl")` is discovered too. Scanned with
+// comments blanked but STRINGS KEPT (the path is the string).
+const ASSET_CALL_RE = /\b(?:import|surface)\s*\(([^)]*)/g;
+const ASSET_FILE_ARG_RE = /(?:^|,)\s*(?:file\s*=\s*)?"([^"]+)"/;
+
+// Mirror of the engine's text-extension classification (openscad-web
+// src/state/project-source.ts): bytes pushed at these paths are decoded as
+// fatal UTF-8 upstream, and INVALID bytes reject the whole project push — so
+// the walker pre-validates and diagnoses instead of pushing a poison file.
+const TEXT_EXTENSIONS = new Set([
+  'scad',
+  'txt',
+  'text',
+  'csv',
+  'json',
+  'svg',
+  'md',
+  'xml',
+  'yaml',
+  'yml',
+  'ini',
+  'cfg',
+  'log',
+]);
+
+// Mirrors of the wire's DoS caps (openscad-web session-transport):
+// SESSION_MAX_FILE_LENGTH / SESSION_MAX_TOTAL_LENGTH. An oversized push is
+// rejected with a protocol error the host surfaces poorly (a generic timeout),
+// so the walker skips + diagnoses oversized assets up front instead.
+const MAX_FILE_BYTES = 32 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 
 /** The minimal filesystem the walker needs. `readFile` is `undefined` if absent. */
 export interface ScadFs {
@@ -63,7 +93,7 @@ export interface ImportIssue {
   spec: string;
   /** 1-based line of the directive within `fromPath`. */
   line: number;
-  kind: 'escapes-root' | 'missing-asset';
+  kind: 'escapes-root' | 'missing-asset' | 'unpushable-asset';
   message: string;
 }
 
@@ -98,6 +128,7 @@ export async function walkImportGraph(
   const files: ProjectFile[] = [];
   const issues: ImportIssue[] = [];
   const visited = new Set<string>();
+  let totalBytes = 0; // running asset-bytes total vs the wire budget
 
   async function visit(abs: string): Promise<void> {
     const canonical = path.posix.normalize(abs);
@@ -136,7 +167,10 @@ export async function walkImportGraph(
 
     // Asset references (#9): push each relative import()/surface() target's
     // bytes so the engine's synchronous FS finds it at compile time. Assets do
-    // not recurse.
+    // not recurse. A file the engine would reject — invalid UTF-8 at a
+    // text-suffix path, or one blowing the wire's size caps — is diagnosed and
+    // SKIPPED: pushing it would atomically reject the whole project and the
+    // wire surfaces that only as a generic timeout.
     for (const { spec, line } of extractAssetRefs(content)) {
       const candidate = path.posix.normalize(path.posix.resolve(dir, spec));
       const assetVfs = toVfs(root, candidate);
@@ -165,12 +199,36 @@ export async function walkImportGraph(
         });
         continue;
       }
+      const unpushable = whyUnpushable(assetVfs, bytes, totalBytes);
+      if (unpushable) {
+        issues.push({ fromPath: vfs, spec, line, kind: 'unpushable-asset', message: unpushable });
+        continue;
+      }
+      totalBytes += bytes.byteLength;
       files.push({ path: assetVfs, bytes });
     }
   }
 
   await visit(entry);
   return { files, entryPoint, issues };
+}
+
+/** Why `bytes` at `vfsPath` cannot be pushed (the engine/wire would reject the
+ *  WHOLE project for it), or undefined when it is fine. */
+function whyUnpushable(vfsPath: string, bytes: Uint8Array, totalSoFar: number): string | undefined {
+  if (bytes.byteLength > MAX_FILE_BYTES || totalSoFar + bytes.byteLength > MAX_TOTAL_BYTES) {
+    return `this asset is too large to push to the preview (limits: 32 MiB per file, 64 MiB total).`;
+  }
+  const dot = vfsPath.lastIndexOf('.');
+  const ext = dot >= 0 ? vfsPath.slice(dot + 1).toLowerCase() : '';
+  if (TEXT_EXTENSIONS.has(ext)) {
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      return `this asset has a text extension but is not valid UTF-8 — it can't be pushed to the preview.`;
+    }
+  }
+  return undefined;
 }
 
 /** Map a real absolute path to the engine VFS, or `null` if it escapes `root`. */
@@ -190,9 +248,22 @@ function extractDirectives(content: string): { spec: string; line: number }[] {
 }
 
 /** Extract relative `import()`/`surface()` asset paths (#9), ignoring comments
- *  (strings are kept — the path IS the string). */
+ *  (strings are kept — the path IS the string). Two-step: capture each call's
+ *  argument list, then take the `file = "…"` named arg anywhere in it, else a
+ *  leading positional string. */
 function extractAssetRefs(content: string): { spec: string; line: number }[] {
-  return extract(blankNonCode(content, false), ASSET_RE);
+  const code = blankNonCode(content, false);
+  const out: { spec: string; line: number }[] = [];
+  ASSET_CALL_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = ASSET_CALL_RE.exec(code)) !== null) {
+    const args = m[1];
+    const named = /\bfile\s*=\s*"([^"]+)"/.exec(args);
+    const chosen = named ?? ASSET_FILE_ARG_RE.exec(args);
+    const spec = chosen?.[1]?.trim();
+    if (spec) out.push({ spec, line: lineAt(code, m.index) });
+  }
+  return out;
 }
 
 function extract(code: string, re: RegExp): { spec: string; line: number }[] {

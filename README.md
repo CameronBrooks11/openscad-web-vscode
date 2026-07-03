@@ -41,13 +41,13 @@ Works in VS Code, VSCodium, and Cursor. Or [run it from source](#try-it-locally)
 
 ## Commands
 
-| Command                                  | What it does                                                                                                   |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `OpenSCAD Viewer: Show Fixture Geometry` | Opens the viewer on a bundled fixture cube.                                                                    |
-| `OpenSCAD Viewer: Preview .off File`     | Opens the viewer on the active / selected `.off`.                                                              |
-| `OpenSCAD Viewer: Preview .scad File`    | Compiles the active / selected `.scad` (+ its relative `use`/`include` closure) in the webview and renders it. |
-| `OpenSCAD Viewer: Export Model (STL, …)` | Converts the current preview (STL/3MF/GLB/OFF; SVG/DXF for 2D) and saves it via a save dialog.                 |
-| `OpenSCAD Viewer: Set Camera View`       | Sets the camera (Front / Top / Diagonal / …).                                                                  |
+| Command                                            | What it does                                                                                                   |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `OpenSCAD Viewer: Show Fixture Geometry`           | Opens the viewer on a bundled fixture cube.                                                                    |
+| `OpenSCAD Viewer: Preview .off File`               | Opens the viewer on the active / selected `.off`.                                                              |
+| `OpenSCAD Viewer: Preview .scad File`              | Compiles the active / selected `.scad` (+ its relative `use`/`include` closure) in the webview and renders it. |
+| `OpenSCAD Viewer: Export Model (STL, 3MF, GLB, …)` | Converts the current preview (STL/3MF/GLB/OFF; SVG/DXF for 2D) and saves it via a save dialog.                 |
+| `OpenSCAD Viewer: Set Camera View`                 | Sets the camera (Front / Top / Diagonal / …).                                                                  |
 
 ## How it works
 

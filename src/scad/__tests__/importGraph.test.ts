@@ -247,3 +247,43 @@ test('an asset referenced from two files is pushed once', async () => {
   );
   assert.deepEqual(vfsPaths(c), ['/home/lib.scad', '/home/main.scad', '/home/p.stl']);
 });
+
+test('named-arg order does not defeat asset discovery (review of #9)', async () => {
+  const c = await walkImportGraph(
+    fakeFs({
+      '/proj/main.scad': 'import(convexity = 3, file = "part.stl");',
+      '/proj/part.stl': Uint8Array.from([7]),
+    }),
+    '/proj',
+    '/proj/main.scad',
+  );
+  assert.ok(c.files.some((f) => f.path === '/home/part.stl'));
+  assert.deepEqual(c.issues, []);
+});
+
+test('invalid UTF-8 at a text-suffix asset path is diagnosed, not pushed (review of #9)', async () => {
+  const c = await walkImportGraph(
+    fakeFs({
+      '/proj/main.scad': 'import("logo.svg");',
+      '/proj/logo.svg': Uint8Array.from([0xff, 0xfe, 0x00, 0xff]),
+    }),
+    '/proj',
+    '/proj/main.scad',
+  );
+  assert.deepEqual(vfsPaths(c), ['/home/main.scad']); // poison file NOT pushed
+  assert.equal(c.issues.length, 1);
+  assert.equal(c.issues[0].kind, 'unpushable-asset');
+  assert.match(c.issues[0].message, /not valid UTF-8/);
+});
+
+test('an oversized asset is diagnosed and skipped (wire cap mirror)', async () => {
+  const big = new Uint8Array(32 * 1024 * 1024 + 1);
+  const c = await walkImportGraph(
+    fakeFs({ '/proj/main.scad': 'import("big.stl");', '/proj/big.stl': big }),
+    '/proj',
+    '/proj/main.scad',
+  );
+  assert.deepEqual(vfsPaths(c), ['/home/main.scad']);
+  assert.equal(c.issues[0].kind, 'unpushable-asset');
+  assert.match(c.issues[0].message, /too large/);
+});

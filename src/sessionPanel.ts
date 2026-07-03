@@ -71,6 +71,8 @@ export interface ExportOutcome {
   artifact?: ArtifactRef;
   bytes?: Uint8Array;
   error?: string;
+  /** A newer export superseded this one — a normal re-trigger, not a failure. */
+  superseded?: boolean;
 }
 
 interface BootWaiter {
@@ -81,6 +83,10 @@ interface BootWaiter {
 interface ExportWaiter {
   resolve: (o: ExportOutcome) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** The requested format — a belt against cross-export result routing: the
+   *  wire has no export↔result correlation id (upstream follow-up), so a stale
+   *  export's terminal must at least not settle a different-format waiter. */
+  format: SessionExportFormat;
 }
 
 interface CompileWaiter {
@@ -201,20 +207,23 @@ export class SessionPanel {
   }
 
   private runExport(format: SessionExportFormat): Promise<ExportOutcome> {
-    // One export at a time: a newer request supersedes the in-flight one.
-    this.settleExport({ ok: false, error: 'superseded by a newer export' });
+    // One export at a time: a newer request supersedes the in-flight one
+    // (silently — a re-trigger is not a failure).
+    this.settleExport({ ok: false, superseded: true });
     return new Promise<ExportOutcome>((resolve) => {
-      this.exportWaiter = {
+      const waiter: ExportWaiter = {
         resolve,
+        format,
         timer: setTimeout(
           () =>
-            this.settleExport({
+            this.settleExportIf(waiter, {
               ok: false,
               error: `export timed out after ${EXPORT_TIMEOUT_MS}ms`,
             }),
           EXPORT_TIMEOUT_MS,
         ),
       };
+      this.exportWaiter = waiter;
       this.send({ type: 'export', format });
     });
   }
@@ -227,8 +236,17 @@ export class SessionPanel {
     w.resolve(outcome);
   }
 
-  /** Second half of the export flow: fetch the produced artifact's bytes by id. */
-  private async fetchExportedArtifact(ref: ArtifactRef): Promise<void> {
+  /** Settle ONLY IF `waiter` is still the current one — every async settle path
+   *  must identity-check, or a superseded export's late result/fetch would
+   *  settle the NEWER waiter with the OLDER artifact's bytes. */
+  private settleExportIf(waiter: ExportWaiter, outcome: ExportOutcome): void {
+    if (this.exportWaiter !== waiter) return;
+    this.settleExport(outcome);
+  }
+
+  /** Second half of the export flow: fetch the produced artifact's bytes by id.
+   *  `waiter` pins the export this fetch belongs to. */
+  private async fetchExportedArtifact(waiter: ExportWaiter, ref: ArtifactRef): Promise<void> {
     const requestId = `exp-${++this.requestSeq}`;
     const reply = await new Promise<SessionArtifactReply | undefined>((resolve) => {
       this.artifactWaiters.set(requestId, resolve);
@@ -237,16 +255,15 @@ export class SessionPanel {
         if (this.artifactWaiters.delete(requestId)) resolve(undefined);
       }, ARTIFACT_FETCH_TIMEOUT_MS);
     });
-    if (!this.exportWaiter) return; // superseded or panel closed meanwhile
     if (!reply) {
-      this.settleExport({ ok: false, error: 'artifact fetch timed out' });
+      this.settleExportIf(waiter, { ok: false, error: 'artifact fetch timed out' });
     } else if (!reply.available) {
-      this.settleExport({
+      this.settleExportIf(waiter, {
         ok: false,
         error: 'the exported artifact is no longer available — try exporting again',
       });
     } else {
-      this.settleExport({ ok: true, artifact: reply.artifact, bytes: reply.bytes });
+      this.settleExportIf(waiter, { ok: true, artifact: reply.artifact, bytes: reply.bytes });
     }
   }
 
@@ -342,6 +359,12 @@ export class SessionPanel {
           this.compileWaiter.minRevision = 0;
           this.compileWaiter.acceptedRevision = -1;
         }
+        // A reload also drops any in-flight export on the floor engine-side —
+        // settle it now instead of pinning a progress toast for 120s.
+        this.settleExport({
+          ok: false,
+          error: 'the session reloaded during the export — try again',
+        });
         this.redrive();
         break;
       case 'operation-result': {
@@ -367,15 +390,21 @@ export class SessionPanel {
         // the compile waiter (an off pass-through export looks exactly like a
         // compiled preview) nor feed the diagnostics accumulator.
         if (r.kind === 'export') {
-          if (!this.exportWaiter) break;
+          const ew = this.exportWaiter;
+          if (!ew) break;
           if (r.status === 'success' && r.artifact) {
-            void this.fetchExportedArtifact(r.artifact);
+            // Format belt: the wire has no export↔result correlation id yet, so
+            // a SUPERSEDED export's late success must not feed the newer waiter
+            // — its artifact format differs whenever the formats differ. (Same-
+            // format supersession remains ambiguous until the upstream id.)
+            if (r.artifact.format !== ew.format) break;
+            void this.fetchExportedArtifact(ew, r.artifact);
           } else if (r.status === 'error') {
             // Append the engine log tail: "Render failed" alone is undiagnosable.
             const logTail = r.logText ? `\n${r.logText.slice(-600)}` : '';
-            this.settleExport({ ok: false, error: `${r.code}: ${r.reason}${logTail}` });
+            this.settleExportIf(ew, { ok: false, error: `${r.code}: ${r.reason}${logTail}` });
           } else if (r.status === 'cancelled') {
-            this.settleExport({ ok: false, error: 'export was cancelled' });
+            this.settleExportIf(ew, { ok: false, error: 'export was cancelled' });
           }
           break;
         }

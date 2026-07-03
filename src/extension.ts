@@ -93,11 +93,26 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
       );
       if (!pick) return;
       const outcome = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Exporting ${pick.label}…` },
-        () => SessionPanel.exportArtifact(pick.format),
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Exporting ${pick.label}…`,
+          cancellable: true,
+        },
+        (_progress, token) =>
+          Promise.race([
+            SessionPanel.exportArtifact(pick.format),
+            // The wire op can't be aborted, but the user can walk away; a late
+            // settle finds no consumer and is dropped harmlessly.
+            new Promise<ExportOutcome>((resolve) =>
+              token.onCancellationRequested(() => resolve({ ok: false, superseded: true })),
+            ),
+          ]),
       );
       if (!outcome.ok || !outcome.bytes) {
-        void vscode.window.showErrorMessage(`OpenSCAD export failed: ${outcome.error}`);
+        // Superseded/user-cancelled exports end silently — only real failures toast.
+        if (!outcome.superseded) {
+          void vscode.window.showErrorMessage(`OpenSCAD export failed: ${outcome.error}`);
+        }
         return;
       }
       const dir =
