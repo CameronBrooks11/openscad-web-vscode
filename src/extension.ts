@@ -121,11 +121,15 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         (_progress, token) =>
           Promise.race([
             SessionPanel.exportArtifact(pick.format, qualityPick.quality),
-            // The wire has only an UNTARGETED cancel (it would also kill
-            // unrelated compiles), so the op keeps running engine-side; the
-            // user walks away and a late settle finds no consumer, harmlessly.
+            // A TARGETED wire cancel (upstream #226) kills exactly the
+            // in-flight render/export engine-side; concurrent compiles are
+            // untouched. The waiters settle via their cancelled terminals into
+            // a consumer-less promise, harmlessly.
             new Promise<ExportOutcome>((resolve) =>
-              token.onCancellationRequested(() => resolve({ ok: false, superseded: true })),
+              token.onCancellationRequested(() => {
+                SessionPanel.cancelInFlightExport();
+                resolve({ ok: false, superseded: true });
+              }),
             ),
           ]),
       );

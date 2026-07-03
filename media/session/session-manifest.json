@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "sessionVersion": "0.3.3",
+  "sessionVersion": "0.3.4",
   "protocolVersion": 2,
-  "sourceCommit": "37fd1ffcc30b6db20e25aa0fe10ae86508cff2f9",
-  "builtAt": "2026-07-03T15:50:09.655Z",
+  "sourceCommit": "aca223b40f761c7d7f9129bc15947848280f87d2",
+  "builtAt": "2026-07-03T20:02:49.706Z",
   "files": {
-    "assets/export_glb-Dhmf_iss.js": {
+    "assets/export_glb-DyhTrkEP.js": {
       "bytes": 402,
-      "sha256": "47f8fd1138648c88c68e4a1bedbfe83f816cbc6d100ed500205040d6259ec1ba"
+      "sha256": "e1020e9b0f28575956b819b032f264f9ddc0b0d891165907d4b7bbcba8060c0f"
     },
     "assets/openscad-DIKIGOy4.wasm": {
       "bytes": 9603115,
@@ -17,9 +17,9 @@
       "bytes": 342634,
       "sha256": "a4b6577b3da0d15446eb3216c735e2686e8d8c0398707f95df9e1114e04b125e"
     },
-    "assets/session-yDpujKVN.js": {
-      "bytes": 500489,
-      "sha256": "f5208dd0d79bbc31cd40e5350362de25bfd44991b77406d5a9c51d4dd068d4bb"
+    "assets/session-CfRhW9vT.js": {
+      "bytes": 501739,
+      "sha256": "8277cda0f7379978f5bb16bf8acf1d6acef5e71adfb08a3fce46cf69b6c81def"
     },
     "assets/three-DQUo8ON5.js": {
       "bytes": 582722,
@@ -126,12 +126,12 @@
       "sha256": "7ef9bd6f318052c906c711926fcfdb64364e321add733aa4d4f15e3484a266dd"
     },
     "protocol/session-transport.d.ts": {
-      "bytes": 4910,
-      "sha256": "b5f2b83c5712e9e3bba17745e7fe715a656f31cb25851d660b1b652c64ce148a"
+      "bytes": 5521,
+      "sha256": "1da78a21e39066e3cda07648d1627604f8f7b3834e654316eb56c24758a03706"
     },
     "protocol/session-transport.js": {
-      "bytes": 13391,
-      "sha256": "5240e8446d1a96417271a03a524064aca893bad5de17557dfb7532d2e1c0ceee"
+      "bytes": 15129,
+      "sha256": "6ca049eb3818694c7d13847017ad8161378fa5d12a74abc812d7fcd91a7bb55a"
     },
     "protocol/session.d.ts": {
       "bytes": 160,
@@ -143,7 +143,7 @@
     },
     "session.html": {
       "bytes": 925,
-      "sha256": "b30e62c960d389e4b5b6095c4e46d5c6c74c5802b92e5eb1d2a2a430c0239d66"
+      "sha256": "7475e2209dcc441a06d1cd13bd97eba2b1e2ae8fc714827c029efc5be23eb8c6"
     }
   },
   "allowlist": [

@@ -135,12 +135,23 @@ export function validateSessionInbound(data) {
             if (data.entryPoint !== undefined && entryPoint === undefined) {
                 return err('invalid-payload', 'entryPoint must be a string');
             }
+            // Optional correlation id (#227): when present, the session replies with
+            // project-ack { requestId, sourceRevision } so the host can correlate
+            // this push's results EXACTLY (by revision) instead of heuristically.
+            const requestId = data.requestId === undefined ? undefined : readString(data.requestId);
+            if (data.requestId !== undefined && requestId === undefined) {
+                return err('invalid-payload', 'requestId must be a string');
+            }
+            if (requestId !== undefined && requestId.length > SESSION_MAX_ID_LENGTH) {
+                return err('too-large', 'an id is too long');
+            }
             return {
                 ok: true,
                 message: {
                     type: 'setProject',
                     files: result.files,
                     ...(entryPoint !== undefined ? { entryPoint } : {}),
+                    ...(requestId !== undefined ? { requestId } : {}),
                 },
             };
         }
@@ -222,8 +233,22 @@ export function validateSessionInbound(data) {
             }
             return { ok: true, message: { type: 'getArtifact', artifactId, requestId } };
         }
-        case 'cancel':
-            return { ok: true, message: { type: 'cancel' } };
+        case 'cancel': {
+            // Optional target (#226): cancel ONLY the operation started by the
+            // command that carried this id (render #219 / export #216); without it,
+            // everything in flight is cancelled (the pre-#226 behavior).
+            const requestId = data.requestId === undefined ? undefined : readString(data.requestId);
+            if (data.requestId !== undefined && requestId === undefined) {
+                return err('invalid-payload', 'requestId must be a string');
+            }
+            if (requestId !== undefined && requestId.length > SESSION_MAX_ID_LENGTH) {
+                return err('too-large', 'an id is too long');
+            }
+            return {
+                ok: true,
+                message: { type: 'cancel', ...(requestId !== undefined ? { requestId } : {}) },
+            };
+        }
         case 'dispose':
             return { ok: true, message: { type: 'dispose' } };
         default:
@@ -263,6 +288,14 @@ export function sessionArtifact(requestId, resolved) {
             bytes: resolved.bytes,
         }
         : { protocolVersion: SESSION_PROTOCOL_VERSION, type: 'artifact', requestId, available: false };
+}
+export function sessionProjectAck(requestId, sourceRevision) {
+    return {
+        protocolVersion: SESSION_PROTOCOL_VERSION,
+        type: 'project-ack',
+        requestId,
+        sourceRevision,
+    };
 }
 /** A protocol-level rejection of an inbound message (validation failure). */
 export function sessionError(code, reason) {

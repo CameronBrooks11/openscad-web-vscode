@@ -31,6 +31,7 @@ export type SessionInbound = {
     type: 'setProject';
     files: ProjectFile[];
     entryPoint?: string;
+    requestId?: string;
 } | {
     type: 'updateFile';
     path: string;
@@ -54,6 +55,7 @@ export type SessionInbound = {
     requestId: string;
 } | {
     type: 'cancel';
+    requestId?: string;
 } | {
     type: 'dispose';
 };
@@ -114,6 +116,17 @@ export declare function sessionArtifact(requestId: string, resolved: {
     artifact: ArtifactRef;
     bytes: Uint8Array;
 } | undefined): SessionArtifactReply;
+/** The reply to a `setProject` that carried a `requestId` (#227): echoes the id
+ *  with the engine's ASSIGNED source revision, so the host can accept exactly
+ *  the results of this push (each `setProject` bumps the revision once). A
+ *  rejected push is detectable: the acked revision equals the previous one. */
+export type SessionProjectAck = {
+    protocolVersion: number;
+    type: 'project-ack';
+    requestId: string;
+    sourceRevision: number;
+};
+export declare function sessionProjectAck(requestId: string, sourceRevision: number): SessionProjectAck;
 /** A protocol-level rejection of an inbound message (validation failure). */
 export declare function sessionError(code: ProtocolErrorCode | string, reason: string): {
     protocolVersion: number;

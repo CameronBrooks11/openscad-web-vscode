@@ -5,6 +5,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Compile results are correlated EXACTLY via the session's new `project-ack`
+  (openscad-web#227): each push carries a `requestId` and the waiter accepts
+  only results at the ack-assigned revision — replacing the monotonic-revision
+  heuristic and its reload special-cases, and closing the last stale-settle
+  window. A push the engine REJECTS (path/size validation) now fails
+  immediately with a clear message instead of a silent 60s timeout.
+- Cancelling the export progress notification now sends a TARGETED wire cancel
+  (openscad-web#226): the in-flight render/export actually stops engine-side,
+  and a concurrent save's compile is untouched.
+
 ## [0.2.2] - 2026-07-03
 
 ### Added

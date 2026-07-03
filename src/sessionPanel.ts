@@ -102,12 +102,13 @@ interface CompileWaiter {
   outcome: CompileOutcome;
   timer: ReturnType<typeof setTimeout>;
   settled: boolean;
-  /** Ignore results below this `sourceRevision` — they belong to a superseded
-   *  push (see the correlation note in `onMessage`). Reset on webview reload. */
-  minRevision: number;
-  /** Highest `sourceRevision` this waiter has accepted results from (-1 = none);
-   *  diagnostics reset when a fresher revision starts streaming. */
-  acceptedRevision: number;
+  /** The id sent with this waiter's LATEST setProject push (a redrive after a
+   *  webview reload mints a fresh one) — matched against `project-ack`. */
+  requestId: string;
+  /** The engine's ASSIGNED revision for this push, from the ack (upstream
+   *  #227). Unset until the ack arrives; results are accepted ONLY at exactly
+   *  this revision — no heuristics, no reload special-cases. */
+  expectedRevision?: number;
 }
 
 export class SessionPanel {
@@ -137,11 +138,10 @@ export class SessionPanel {
     (r: SessionArtifactReply | undefined) => void
   >();
   private requestSeq = 0;
-  /** Highest `sourceRevision` observed on any result from THIS engine boot.
-   *  Each `setProject` bumps the engine's revision exactly once, so a new
-   *  compile only accepts results above everything seen before it. Reset on
-   *  `ready` — a webview reload restarts the engine's revision counter at 0. */
-  private maxRevisionSeen = 0;
+  /** The revision the engine acked for the PREVIOUS push (undefined after a
+   *  reload — the fresh engine restarts its counter). An ack that does NOT
+   *  advance past this means the engine REJECTED the push (upstream #227). */
+  private lastAckedRevision?: number;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -216,6 +216,18 @@ export class SessionPanel {
       });
     }
     return panel.runQualityExport(format, quality);
+  }
+
+  /** Cancel whatever the in-flight quality export is doing engine-side — the
+   *  render phase or the export conversion — via a TARGETED wire cancel
+   *  (upstream #226), so a concurrent save's compile is untouched. The killed
+   *  op terminates as a cancelled result and the waiters settle through their
+   *  normal paths. */
+  static cancelInFlightExport(): void {
+    const panel = SessionPanel.current;
+    if (!panel || !panel.live) return;
+    const requestId = panel.renderWaiter?.requestId ?? panel.exportWaiter?.requestId;
+    if (requestId !== undefined) panel.send({ type: 'cancel', requestId });
   }
 
   /** Optionally run a FULL render first (#219 — `$preview = false`, so the
@@ -385,11 +397,7 @@ export class SessionPanel {
           COMPILE_TIMEOUT_MS,
         ),
         settled: false,
-        // Our `setProject` below bumps the engine's revision past everything
-        // observed so far, so anything at or below `maxRevisionSeen` is a late
-        // result from a superseded push and must not settle this waiter.
-        minRevision: this.maxRevisionSeen + 1,
-        acceptedRevision: -1,
+        requestId: '', // assigned by redrive(), which mints one per push
       };
       this.redrive();
     });
@@ -398,10 +406,19 @@ export class SessionPanel {
   /** (Re)push the current project to a live session — also the reload recovery path. */
   private redrive(): void {
     if (!this.live || !this.currentProject) return;
+    // A fresh id per push: the coming `project-ack` re-binds the in-flight
+    // waiter to THIS push's assigned revision (a reload restarts the engine's
+    // counter, so the previous expectation is meaningless).
+    const requestId = `push-${++this.requestSeq}`;
+    if (this.compileWaiter && !this.compileWaiter.settled) {
+      this.compileWaiter.requestId = requestId;
+      this.compileWaiter.expectedRevision = undefined;
+    }
     this.send({
       type: 'setProject',
       files: this.currentProject.files,
       entryPoint: this.currentProject.entryPoint,
+      requestId,
     });
   }
 
@@ -419,17 +436,10 @@ export class SessionPanel {
         this.settleBoot({ ready: true, protocolVersion: msg.protocolVersion });
         // A webview reload re-fires `ready` with a fresh, empty engine; re-push the
         // current project so it recompiles (first `ready` has no project yet → no-op).
-        // The fresh engine's revision counter restarts at 0, so the revision gate
-        // must restart with it — otherwise the redriven compile's results would all
-        // be dropped as "stale" and the waiter would hang to its timeout. The
-        // accepted high-water mark must restart too: post-reload revisions are
-        // numerically BELOW the pre-reload ones, and the fresh results must still
-        // reset the accumulated diagnostics.
-        this.maxRevisionSeen = 0;
-        if (this.compileWaiter) {
-          this.compileWaiter.minRevision = 0;
-          this.compileWaiter.acceptedRevision = -1;
-        }
+        // The fresh engine restarts its revision counter, so the previous push's
+        // ack expectation is void — redrive() below mints a fresh requestId and
+        // the new ack re-binds the waiter to the new engine's revision.
+        this.lastAckedRevision = undefined;
         // A reload also drops any in-flight render/export on the floor
         // engine-side — settle them now instead of pinning a progress toast.
         this.settleRender({
@@ -463,7 +473,8 @@ export class SessionPanel {
         // Export results branch off first: they are P6's flow, carry the
         // CONSUMED output's (older) revision by design, and must neither settle
         // the compile waiter (an off pass-through export looks exactly like a
-        // compiled preview) nor feed the diagnostics accumulator.
+        // compiled preview) nor feed the diagnostics accumulator. Compile
+        // results are accepted ONLY at the ack-assigned revision (#227).
         // A wire-triggered full render (#219): settle the waiter matching our
         // requestId, then FALL THROUGH — unlike export terminals, this is a
         // genuine compile-stream result at its true sourceRevision, and it can
@@ -503,16 +514,13 @@ export class SessionPanel {
           }
           break;
         }
-        this.maxRevisionSeen = Math.max(this.maxRevisionSeen, r.sourceRevision);
         const w = this.compileWaiter;
         if (!w || w.settled) break;
-        if (r.sourceRevision < w.minRevision) break; // stale: a superseded push
-        if (r.sourceRevision > w.acceptedRevision) {
-          // A fresher revision started streaming (e.g. the redrive after a webview
-          // reload): markers from the older one no longer describe these sources.
-          w.acceptedRevision = r.sourceRevision;
-          w.outcome.diagnostics = [];
-        }
+        // Exact correlation (#227): the ack (which precedes any of this push's
+        // results — the session sends it synchronously on dispatch) bound this
+        // waiter to its assigned revision. Anything else is another push's
+        // late/stale result; without an ack yet, nothing is ours.
+        if (w.expectedRevision === undefined || r.sourceRevision !== w.expectedRevision) break;
         if (r.diagnostics.length) w.outcome.diagnostics.push(...r.diagnostics);
         if (r.status === 'success' && r.artifact?.format === 'off') {
           w.outcome.compiled = true;
@@ -523,6 +531,23 @@ export class SessionPanel {
           this.settleCompile();
         }
         // syntaxCheck success (no artifact) / cancelled → keep waiting.
+        break;
+      }
+      case 'project-ack': {
+        const w = this.compileWaiter;
+        if (!w || w.settled || msg.requestId !== w.requestId) break;
+        if (this.lastAckedRevision !== undefined && msg.sourceRevision <= this.lastAckedRevision) {
+          // The engine did not advance its revision: it REJECTED the push
+          // (path/size validation — previously invisible on the wire, a silent
+          // 60s timeout). Surface it immediately.
+          this.settleCompile({
+            error: 'the session rejected the project push (path or size validation failed)',
+          });
+          break;
+        }
+        this.lastAckedRevision = msg.sourceRevision;
+        w.expectedRevision = msg.sourceRevision;
+        w.outcome.diagnostics = []; // markers from any earlier push are void
         break;
       }
       case 'artifact': {
