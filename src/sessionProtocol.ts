@@ -34,14 +34,14 @@ export type SessionExportFormat = (typeof SESSION_EXPORT_FORMATS)[number];
 
 /** Host → session. Mirrors `SessionInbound` in the shipped L1 protocol. */
 export type SessionInbound =
-  | { type: 'setProject'; files: ProjectFile[]; entryPoint?: string }
+  | { type: 'setProject'; files: ProjectFile[]; entryPoint?: string; requestId?: string }
   | { type: 'updateFile'; path: string; content: string }
   | { type: 'removeFile'; path: string }
   | { type: 'setEntryPoint'; path: string }
   | { type: 'render'; requestId?: string }
   | { type: 'export'; format: SessionExportFormat; requestId?: string }
   | { type: 'getArtifact'; artifactId: string; requestId: string }
-  | { type: 'cancel' }
+  | { type: 'cancel'; requestId?: string }
   | { type: 'dispose' };
 
 export type DiagnosticSeverity = 'error' | 'warning' | 'info';
@@ -119,9 +119,21 @@ export type SessionArtifactReply =
     }
   | { type: 'artifact'; protocolVersion: number; requestId: string; available: false };
 
+/** The reply to a `setProject` that carried a requestId (upstream #227): the
+ *  engine's ASSIGNED revision for that push. Accept exactly the results
+ *  carrying it; an acked revision equal to the previous one means the push was
+ *  REJECTED (path/size validation). */
+export type SessionProjectAck = {
+  type: 'project-ack';
+  protocolVersion: number;
+  requestId: string;
+  sourceRevision: number;
+};
+
 /** Session → host. The outbound subset the extension reacts to. */
 export type SessionOutbound =
   | { type: 'ready'; protocolVersion: number; capabilities: string[] }
+  | SessionProjectAck
   | { type: 'operation-result'; protocolVersion: number; result: OperationResult }
   | SessionArtifactReply
   | { type: 'error'; protocolVersion: number; code: string; reason: string };
