@@ -5,6 +5,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
+The live-preview release: the `.scad` preview now recompiles on save with
+inline compiler diagnostics, exports to STL/3MF/GLB/OFF (SVG/DXF for 2D), and
+pushes relative `import()`/`surface()` assets with the project — on
+openscad-web v0.3.1 (L1 protocol v2).
+
 ### Added
 
 - **Export to disk** (epic #8 P6): _Export Model_ command — converts the
