@@ -1,8 +1,7 @@
 # OpenSCAD Web Viewer (VS Code extension)
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/cameronbrooks11.openscad-web-vscode?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=cameronbrooks11.openscad-web-vscode)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/cameronbrooks11.openscad-web-vscode)](https://marketplace.visualstudio.com/items?itemName=cameronbrooks11.openscad-web-vscode)
 [![CI](https://github.com/CameronBrooks11/openscad-web-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/CameronBrooks11/openscad-web-vscode/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/CameronBrooks11/openscad-web-vscode?include_prereleases&label=release)](https://github.com/CameronBrooks11/openscad-web-vscode/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 Preview OpenSCAD models inside a VS Code webview — render existing `.off` meshes,
@@ -18,17 +17,22 @@ session engine built in [**openscad-web**](https://github.com/CameronBrooks11/op
 
 ## Install
 
-From the VS Code **Extensions** view, search **"OpenSCAD Web Viewer"** and install,
-or from the command line:
+Download the latest `openscad-web-vscode-*.vsix` from the
+[**Releases**](https://github.com/CameronBrooks11/openscad-web-vscode/releases) page,
+then either:
 
-```bash
-code --install-extension cameronbrooks11.openscad-web-vscode
-```
+- **Extensions** view → **⋯** menu → **Install from VSIX…** → pick the file, or
+- from the command line:
 
-Alternatively, download the `.vsix` from the
-[latest release](https://github.com/CameronBrooks11/openscad-web-vscode/releases)
-and run `code --install-extension <file>.vsix`, or
-[run it from source](#try-it-locally).
+  ```bash
+  code --install-extension openscad-web-vscode-<version>.vsix
+  ```
+
+Works in VS Code, VSCodium, and Cursor. Or [run it from source](#try-it-locally).
+
+> **Not on the VS Code Marketplace yet** — distribution is via GitHub Releases for
+> now. Marketplace / Open VSX publishing is planned once the project has a stable
+> home.
 
 ## Commands
 

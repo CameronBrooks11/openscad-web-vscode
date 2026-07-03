@@ -47,6 +47,27 @@ compile-capable session artifact (~20 MB — it carries the OpenSCAD WASM + work
 library zips) that powers live `.scad` preview (epic #8). Both are integrity-checked
 against their manifests in `npm run check` and CI.
 
+## Releasing
+
+Distribution is **GitHub Releases only** for now — the packaged `.vsix` is attached
+to each Release; no Marketplace / Open VSX account is tied to the project yet.
+
+To cut a release:
+
+1. Bump `version` in `package.json` and add a `CHANGELOG.md` entry.
+2. Merge that to `main`.
+3. Create and publish a GitHub **Release** tagged `vX.Y.Z` (must match `package.json`).
+
+`.github/workflows/release.yml` then runs the full gate + EDH smoke test, asserts the
+tag matches `package.json`, packages the `.vsix`, and uploads it to the Release. Users
+install via **Extensions ▸ ⋯ ▸ Install from VSIX…** or `code --install-extension <file>.vsix`.
+
+**Publishing to a registry later** (e.g. once the project has a stable org home): add a
+publish step to `release.yml` after _Package VSIX_, under that org's identity —
+`npx @vscode/vsce publish …` with a `VSCE_PAT` secret (VS Code Marketplace) and/or
+`npx ovsx publish …` with an `OVSX_PAT` secret (Open VSX). Left unwired now so releases
+aren't tied to a personal publisher account.
+
 ## Commits & PRs
 
 - [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): description`,
