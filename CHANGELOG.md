@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-03
+
 ### Added
 
 - **Render-quality exports** (openscad-web#219, vendored v0.3.3): the Export
