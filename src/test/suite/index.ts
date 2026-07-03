@@ -4,6 +4,7 @@ import Mocha from 'mocha';
 export function run(): Promise<void> {
   const mocha = new Mocha({ ui: 'bdd', color: true, timeout: 60_000 });
   mocha.addFile(path.resolve(__dirname, './smoke.test.js'));
+  mocha.addFile(path.resolve(__dirname, './livePreview.test.js'));
 
   return new Promise((resolve, reject) => {
     try {

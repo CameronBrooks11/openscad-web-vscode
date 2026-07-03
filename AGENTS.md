@@ -1,21 +1,24 @@
 # Project conventions — openscad-web-vscode
 
-VS Code extension that embeds the **openscad-web** standalone viewer to preview
-OFF geometry. Read-only viewer (Phase 1 of openscad-web epic #143). No `.scad`
-compile, no WASM, no editor.
+VS Code extension that embeds **openscad-web** artifacts in webviews: the
+read-only viewer for OFF geometry (openscad-web epic #143) and the
+compile-capable session for live `.scad` preview via the WASM engine (epic #8 /
+openscad-web #179). No editor of its own.
 
 ## Boundaries
 
-- The viewer + its L0 protocol come from openscad-web. This repo is a **consumer**:
-  it vendors a pinned `dist-viewer/` into `media/viewer/` and speaks the protocol.
-- **Never hand-edit `media/viewer/`** — it is a verified artifact. Update it only
-  via `npm run sync-viewer` (which re-verifies the manifest).
+- The artifacts + their protocols come from openscad-web. This repo is a
+  **consumer**: it vendors pinned copies of `dist-viewer/` → `media/viewer/`
+  (L0) and `dist-session/` → `media/session/` (L1) and speaks their protocols.
+- **Never hand-edit `media/viewer/` or `media/session/`** — they are verified
+  artifacts. Update them only via `npm run sync-viewer` / `npm run sync-session`
+  (which re-verify the manifests).
 - The authoritative protocol contract is openscad-web
-  `docs/EMBEDDING-VSCODE.md` + ADR 0005. Mirror, don't fork, its message shapes
-  (`src/protocol.ts`); pin the runtime version from the artifact manifest, never a
-  hard-coded constant.
-- Keep zero coupling to `.scad` compilation — that belongs to the future
-  live-session work (openscad-web #179), a different artifact.
+  `docs/EMBEDDING-VSCODE.md` + ADRs 0005/0009. Mirror, don't fork, the message
+  shapes (`src/protocol.ts`, `src/sessionProtocol.ts`); pin the runtime version
+  from the artifact manifest, never a hard-coded constant.
+- `.scad` compilation happens ONLY inside the vendored session webview (WASM) —
+  never by shelling out to a native OpenSCAD install (openscad-web #179).
 
 ## Workflow
 
@@ -28,10 +31,14 @@ compile, no WASM, no editor.
 ## Layout
 
 - `src/extension.ts` — activation, commands, the test-facing API.
-- `src/viewerPanel.ts` — the webview host + L0 handshake.
-- `src/protocol.ts` — host-side mirror of the L0 message shapes.
-- `src/viewerArtifact.ts` — access to `media/viewer/` + its manifest.
-- `src/test/` — `@vscode/test-electron` smoke test (round-trip, not pixels).
-- `scripts/` — `sync-viewer.mjs`, `verify-viewer-manifest.mjs`.
-- `media/viewer/` — the vendored, pinned viewer artifact (do not edit).
+- `src/viewerPanel.ts` / `src/sessionPanel.ts` — the webview hosts (L0 / L1).
+- `src/protocol.ts` / `src/sessionProtocol.ts` — host-side protocol mirrors.
+- `src/viewerArtifact.ts` / `src/sessionArtifact.ts` — vendored-artifact access.
+- `src/scad/` — the pure import-graph walker + diagnostic mapping (no `vscode`).
+- `src/scadPreview.ts` / `src/compileTrigger.ts` / `src/diagnostics.ts` — the
+  live-preview flow, save/watcher triggers, and published diagnostics (P4).
+- `src/test/` — `@vscode/test-electron` EDH tests; `test-fixtures/` — the
+  workspace fixture they open (copied to a temp dir per run).
+- `scripts/` — sync/verify scripts for both artifacts.
+- `media/viewer/`, `media/session/` — vendored, pinned artifacts (do not edit).
 - `media/fixtures/` — sample OFF geometry.

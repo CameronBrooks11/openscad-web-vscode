@@ -72,10 +72,20 @@ interface CompileWaiter {
   outcome: CompileOutcome;
   timer: ReturnType<typeof setTimeout>;
   settled: boolean;
+  /** Ignore results below this `sourceRevision` — they belong to a superseded
+   *  push (see the correlation note in `onMessage`). Reset on webview reload. */
+  minRevision: number;
+  /** Highest `sourceRevision` this waiter has accepted results from (-1 = none);
+   *  diagnostics reset when a fresher revision starts streaming. */
+  acceptedRevision: number;
 }
 
 export class SessionPanel {
   private static current: SessionPanel | undefined;
+  private static readonly disposedEmitter = new vscode.EventEmitter<void>();
+  /** Fires when the session panel is disposed (user close or failed-boot
+   *  teardown) — lets the owner clear diagnostics / deactivate triggers. */
+  static readonly onDidDispose = SessionPanel.disposedEmitter.event;
 
   private readonly disposables: vscode.Disposable[] = [];
   /** `ready` received AND version matched — safe to drive the session. */
@@ -87,6 +97,11 @@ export class SessionPanel {
   private currentProject?: { files: ProjectFile[]; entryPoint?: string };
   /** The in-flight compile awaiting its terminal result, if any. */
   private compileWaiter?: CompileWaiter;
+  /** Highest `sourceRevision` observed on any result from THIS engine boot.
+   *  Each `setProject` bumps the engine's revision exactly once, so a new
+   *  compile only accepts results above everything seen before it. Reset on
+   *  `ready` — a webview reload restarts the engine's revision counter at 0. */
+  private maxRevisionSeen = 0;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -109,7 +124,7 @@ export class SessionPanel {
    * one. A second call on an already-booted panel reveals it and resolves with the
    * cached outcome. Re-uses one panel — the WASM engine is expensive to spin up.
    */
-  static boot(context: vscode.ExtensionContext): Promise<BootOutcome> {
+  static boot(context: vscode.ExtensionContext, reveal = true): Promise<BootOutcome> {
     if (!SessionPanel.current) {
       const dir = sessionDir(context.extensionUri);
       const expected = readSessionManifest(context.extensionUri).protocolVersion;
@@ -122,7 +137,7 @@ export class SessionPanel {
       panel.webview.html = buildSessionHtml(panel.webview, dir);
       SessionPanel.current = new SessionPanel(panel, expected);
     }
-    return SessionPanel.current.awaitBoot();
+    return SessionPanel.current.awaitBoot(reveal);
   }
 
   /**
@@ -135,15 +150,20 @@ export class SessionPanel {
     context: vscode.ExtensionContext,
     files: ProjectFile[],
     entryPoint?: string,
+    reveal = true,
   ): Promise<CompileOutcome> {
-    const boot = await SessionPanel.boot(context);
+    const boot = await SessionPanel.boot(context, reveal);
     const panel = SessionPanel.current;
     if (!panel) return fromBoot(boot); // disposed during boot
     return panel.runCompile(boot, files, entryPoint);
   }
 
-  private awaitBoot(): Promise<BootOutcome> {
-    this.panel.reveal(vscode.ViewColumn.Active, false);
+  private awaitBoot(reveal: boolean): Promise<BootOutcome> {
+    // Manual previews reveal the panel in its own column, PRESERVING focus so
+    // the editor keeps the caret. Save-triggered compiles don't reveal at all —
+    // flipping the panel's tab group back to it on every save would defeat the
+    // quiet-trigger design (the panel may be deliberately behind another tab).
+    if (reveal) this.panel.reveal(undefined, true);
     // The boot promise settles once; a later caller resolves from the cached
     // outcome rather than waiting for a `ready` that won't fire again.
     if (this.bootOutcome) return Promise.resolve(this.bootOutcome);
@@ -185,6 +205,11 @@ export class SessionPanel {
           COMPILE_TIMEOUT_MS,
         ),
         settled: false,
+        // Our `setProject` below bumps the engine's revision past everything
+        // observed so far, so anything at or below `maxRevisionSeen` is a late
+        // result from a superseded push and must not settle this waiter.
+        minRevision: this.maxRevisionSeen + 1,
+        acceptedRevision: -1,
       };
       this.redrive();
     });
@@ -214,22 +239,47 @@ export class SessionPanel {
         this.settleBoot({ ready: true, protocolVersion: msg.protocolVersion });
         // A webview reload re-fires `ready` with a fresh, empty engine; re-push the
         // current project so it recompiles (first `ready` has no project yet → no-op).
+        // The fresh engine's revision counter restarts at 0, so the revision gate
+        // must restart with it — otherwise the redriven compile's results would all
+        // be dropped as "stale" and the waiter would hang to its timeout. The
+        // accepted high-water mark must restart too: post-reload revisions are
+        // numerically BELOW the pre-reload ones, and the fresh results must still
+        // reset the accumulated diagnostics.
+        this.maxRevisionSeen = 0;
+        if (this.compileWaiter) {
+          this.compileWaiter.minRevision = 0;
+          this.compileWaiter.acceptedRevision = -1;
+        }
         this.redrive();
         break;
       case 'operation-result': {
         // The push stream: `setProject`'s auto-compile fans out to a syntaxCheck +
         // a preview (NOT a full render). Settle on the first terminal that produced
         // geometry (success + OFF artifact) or failed (error); a syntax error
-        // settles via the preview error. Accumulate diagnostics for P4 throughout.
+        // settles via the preview error. Diagnostics accumulate across the stream.
         //
-        // Known limitation (P4): results are not correlated by `sourceRevision`, so
-        // a late result from a superseded compile can settle the current waiter. The
-        // session renders the correct (latest) geometry in-process regardless; only
-        // the host's coarse outcome toast can be momentarily off under rapid
-        // re-triggers. `OperationResult.{operationId,sourceRevision}` enable the fix.
+        // Correlation: results carry the engine's monotonic `sourceRevision`, and
+        // each `setProject` bumps it exactly once, so a waiter ignores anything
+        // below the revision floor captured at its creation (`minRevision`) — a
+        // late result from a superseded push can no longer settle it. Residual
+        // window: if a push is superseded before ANY of its results arrived
+        // (rapid re-trigger, or a reload-redriven push followed by an immediate
+        // new preview), the floor predates it and one of its late results could
+        // still slip through; the debounce on save-triggers makes that window
+        // small, and the session renders the latest geometry in-process
+        // regardless. Closing it fully needs host↔engine correlation (an ack
+        // carrying the assigned revision) — an upstream protocol change.
+        const r = msg.result;
+        this.maxRevisionSeen = Math.max(this.maxRevisionSeen, r.sourceRevision);
         const w = this.compileWaiter;
         if (!w || w.settled) break;
-        const r = msg.result;
+        if (r.sourceRevision < w.minRevision) break; // stale: a superseded push
+        if (r.sourceRevision > w.acceptedRevision) {
+          // A fresher revision started streaming (e.g. the redrive after a webview
+          // reload): markers from the older one no longer describe these sources.
+          w.acceptedRevision = r.sourceRevision;
+          w.outcome.diagnostics = [];
+        }
         if (r.diagnostics.length) w.outcome.diagnostics.push(...r.diagnostics);
         if (r.status === 'success' && r.artifact?.format === 'off') {
           w.outcome.compiled = true;
@@ -298,6 +348,7 @@ export class SessionPanel {
     this.settleCompile({ closedByUser: true });
     this.disposables.forEach((d) => d.dispose());
     SessionPanel.current = undefined;
+    SessionPanel.disposedEmitter.fire();
   }
 }
 

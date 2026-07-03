@@ -4,8 +4,9 @@ import { SessionPanel, type BootOutcome, type CompileOutcome } from './sessionPa
 import { readFixtureOff } from './viewerArtifact';
 import { NAMED_VIEWS, type NamedView } from './protocol';
 import type { ProjectFile } from './sessionProtocol';
-import { walkImportGraph } from './scad/importGraph';
-import { vscodeScadFs } from './scad/vscodeFs';
+import { ScadDiagnostics } from './diagnostics';
+import { CompileTriggerController } from './compileTrigger';
+import { isPreviewableScad, runScadPreview } from './scadPreview';
 
 /** The API the extension returns from `activate`, used by the EDH smoke test. */
 export interface ExtensionApi {
@@ -25,7 +26,24 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     ViewerPanel.show(context, readFixtureOff(context.extensionUri), 'fixture cube');
   const showOff = (offText: string, title: string) => ViewerPanel.show(context, offText, title);
 
+  // P4: compiler markers as squiggles + the save/watcher re-compile loop. The
+  // triggers re-run the same quiet preview flow and re-track, so the watched
+  // closure follows the project as imports are added/removed.
+  const diagnostics = new ScadDiagnostics();
+  const triggers = new CompileTriggerController(async (entry) => {
+    const preview = await runScadPreview(context, diagnostics, entry, { quiet: true });
+    if (preview) triggers.track(preview);
+  });
+
   context.subscriptions.push(
+    diagnostics,
+    triggers,
+    // Closing the session panel ends the live preview: stale squiggles would
+    // otherwise outlive the geometry they describe.
+    SessionPanel.onDidDispose(() => {
+      diagnostics.clear();
+      triggers.clear();
+    }),
     vscode.commands.registerCommand('openscadWebViewer.showFixture', async () => {
       report(await showFixture());
     }),
@@ -41,33 +59,12 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     }),
     vscode.commands.registerCommand('openscadWebViewer.previewScad', async (uri?: vscode.Uri) => {
       const entry = uri ?? vscode.window.activeTextEditor?.document.uri;
-      // Require a saved `.scad` on a real filesystem: the walker needs a workspace
-      // root + readable paths, and `setProject` an entry it can find. (Guards a
-      // palette invocation over a non-.scad or untitled editor — which would
-      // otherwise walk arbitrary text and stall on a missing entry.)
-      if (!entry || entry.scheme !== 'file' || !entry.path.toLowerCase().endsWith('.scad')) {
+      if (!isPreviewableScad(entry)) {
         void vscode.window.showWarningMessage('Open or select a saved .scad file to preview.');
         return;
       }
-      // Closure root: the entry's workspace folder, else its own directory. The
-      // walker maps everything under root into the engine's `/home` VFS.
-      const root =
-        vscode.workspace.getWorkspaceFolder(entry)?.uri ?? vscode.Uri.joinPath(entry, '..');
-      let closure;
-      try {
-        closure = await walkImportGraph(vscodeScadFs(root), root.path, entry.path);
-      } catch (e) {
-        void vscode.window.showErrorMessage(`Could not resolve .scad imports: ${asMessage(e)}`);
-        return;
-      }
-      // Surface unpreviewable deps (escapes-root) as a single warning; details P4.
-      if (closure.issues.length > 0) {
-        const specs = [...new Set(closure.issues.map((i) => i.spec))].join(', ');
-        void vscode.window.showWarningMessage(
-          `OpenSCAD: ${closure.issues.length} import(s) can't be previewed (outside the project root): ${specs}`,
-        );
-      }
-      reportCompile(await SessionPanel.compile(context, closure.files, closure.entryPoint));
+      const preview = await runScadPreview(context, diagnostics, entry, { quiet: false });
+      if (preview) triggers.track(preview);
     }),
     vscode.commands.registerCommand('openscadWebViewer.setView', async () => {
       if (!ViewerPanel.hasPanel()) {
@@ -113,24 +110,4 @@ function report(outcome: LoadOutcome): void {
   } else if (outcome.loaded) {
     void vscode.window.showInformationMessage('OpenSCAD geometry rendered.');
   }
-}
-
-function reportCompile(outcome: CompileOutcome): void {
-  if (outcome.closedByUser || outcome.superseded) {
-    return; // dismissed, or replaced by a newer preview — neither is a failure.
-  }
-  if (!outcome.ready) {
-    // A failed/skewed boot carries its reason (incl. protocol-version mismatch).
-    void vscode.window.showErrorMessage(outcome.error ?? 'OpenSCAD session did not initialize.');
-  } else if (outcome.compiled) {
-    void vscode.window.showInformationMessage('OpenSCAD model compiled.');
-  } else if (outcome.error) {
-    void vscode.window.showErrorMessage(`OpenSCAD compile failed: ${outcome.error}`);
-  } else {
-    void vscode.window.showWarningMessage('OpenSCAD: no compile result.');
-  }
-}
-
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

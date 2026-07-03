@@ -13,6 +13,7 @@ out/**/*.map
 justfile
 AGENTS.md
 .vscode-test/**
+test-fixtures/**
 scripts/**
 *.vsix
 
