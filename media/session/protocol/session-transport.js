@@ -35,12 +35,27 @@ export const SESSION_MAX_TOTAL_LENGTH = 64 * 1024 * 1024;
 export const SESSION_MAX_PATH_LENGTH = 4096;
 /** Cap for opaque ids (`artifactId` is a v4 UUID, `requestId` host-chosen). */
 export const SESSION_MAX_ID_LENGTH = 256;
+/** Library-name rule (ADR 0010): the name becomes a ROOT SYMLINK verbatim, so
+ *  it must be a single safe segment — and never `.`/`..` or a reserved mount. */
+export const SESSION_LIBRARY_NAME_RE = /^[A-Za-z0-9._-]+$/;
+export const SESSION_RESERVED_LIBRARY_NAMES = new Set([
+    'fonts',
+    'home',
+    'tmp',
+    'libraries',
+    'locale',
+    'dev',
+    'proc',
+    '.',
+    '..',
+]);
 /** The inbound command types, advertised in `ready` so a host can feature-detect. */
 export const SESSION_COMMANDS = [
     'setProject',
     'updateFile',
     'removeFile',
     'setEntryPoint',
+    'setLibraries',
     'render',
     'export',
     'getArtifact',
@@ -112,6 +127,158 @@ function readProjectFiles(value) {
     }
     return { files };
 }
+/** Text-suffix mirror of the engine's classification (project-source.ts) —
+ *  duplicated here because the protocol layer is import-fenced. Bytes at these
+ *  paths must be valid UTF-8 (they are treated as text downstream). */
+const LIBRARY_TEXT_EXTENSIONS = new Set([
+    'scad',
+    'txt',
+    'text',
+    'csv',
+    'json',
+    'svg',
+    'md',
+    'xml',
+    'yaml',
+    'yml',
+    'ini',
+    'cfg',
+    'log',
+]);
+function isSafeLibraryRelPath(path) {
+    if (path.length === 0 || path.length > SESSION_MAX_PATH_LENGTH)
+        return false;
+    if (path.startsWith('/') || path.includes('\\'))
+        return false;
+    // eslint-disable-next-line no-control-regex
+    if (/[\u0000-\u001f\u007f]/.test(path))
+        return false;
+    const segments = path.split('/');
+    return segments.every((s) => s.length > 0 && s !== '.' && s !== '..');
+}
+/** Validate a `SessionLibrary[]` payload per ADR 0010 §6: safe single-segment
+ *  names (reserved list excluded), safe relative paths, exactly-one-of
+ *  content|bytes, valid UTF-8 for bytes at text-suffix paths, no duplicate
+ *  names/paths, no path-prefix conflicts (a path that is both a file and a
+ *  directory), and a SEPARATE size pool with the shared constants. */
+function readSessionLibraries(value) {
+    if (!Array.isArray(value))
+        return err('invalid-payload', 'libraries must be an array');
+    if (value.length > SESSION_MAX_FILES)
+        return err('too-large', 'too many libraries');
+    const libraries = [];
+    const names = new Set();
+    let total = 0;
+    let fileCount = 0;
+    for (const entry of value) {
+        if (!isRecord(entry))
+            return err('invalid-payload', 'each library must be an object');
+        const name = readString(entry.name);
+        if (name === undefined ||
+            !SESSION_LIBRARY_NAME_RE.test(name) ||
+            SESSION_RESERVED_LIBRARY_NAMES.has(name)) {
+            return err('invalid-payload', 'library name must be a safe, non-reserved single segment');
+        }
+        if (name.length > SESSION_MAX_PATH_LENGTH)
+            return err('too-large', 'a library name is too long');
+        if (names.has(name))
+            return err('invalid-payload', `duplicate library name: ${name}`);
+        names.add(name);
+        total += name.length;
+        if (total > SESSION_MAX_TOTAL_LENGTH)
+            return err('too-large', 'libraries exceed the size limit');
+        if (!Array.isArray(entry.files)) {
+            return err('invalid-payload', 'library files must be an array');
+        }
+        const files = [];
+        const paths = new Set();
+        const dirPrefixes = new Set();
+        for (const file of entry.files) {
+            fileCount += 1;
+            if (fileCount > SESSION_MAX_FILES)
+                return err('too-large', 'too many library files');
+            if (!isRecord(file))
+                return err('invalid-payload', 'each library file must be an object');
+            const path = readString(file.path);
+            if (path === undefined || !isSafeLibraryRelPath(path)) {
+                return err('invalid-payload', 'library file paths must be safe relative paths');
+            }
+            if (paths.has(path) || dirPrefixes.has(path)) {
+                return err('invalid-payload', `conflicting library path: ${path}`);
+            }
+            const segments = path.split('/');
+            let prefix = '';
+            for (const segment of segments.slice(0, -1)) {
+                prefix = prefix ? `${prefix}/${segment}` : segment;
+                if (paths.has(prefix))
+                    return err('invalid-payload', `conflicting library path: ${prefix}`);
+                dirPrefixes.add(prefix);
+            }
+            paths.add(path);
+            const hasContent = file.content !== undefined;
+            const hasBytes = file.bytes !== undefined;
+            if (hasContent === hasBytes) {
+                return err('invalid-payload', 'each library file must have exactly one of content or bytes');
+            }
+            if (hasBytes) {
+                const bytes = file.bytes;
+                if (!(bytes instanceof Uint8Array)) {
+                    return err('invalid-payload', 'library file bytes must be a Uint8Array');
+                }
+                if (bytes.byteLength > SESSION_MAX_FILE_LENGTH) {
+                    return err('too-large', 'a library file is too large');
+                }
+                total += bytes.byteLength + path.length;
+                if (total > SESSION_MAX_TOTAL_LENGTH) {
+                    return err('too-large', 'libraries exceed the size limit');
+                }
+                const dot = path.lastIndexOf('.');
+                const ext = dot >= 0 ? path.slice(dot + 1).toLowerCase() : '';
+                if (LIBRARY_TEXT_EXTENSIONS.has(ext)) {
+                    try {
+                        new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+                    }
+                    catch {
+                        return err('invalid-payload', `${path} has a text extension but is not valid UTF-8`);
+                    }
+                }
+                files.push({ path, bytes });
+                continue;
+            }
+            const content = readString(file.content);
+            if (content === undefined) {
+                return err('invalid-payload', 'library file content must be a string');
+            }
+            if (content.length > SESSION_MAX_FILE_LENGTH) {
+                return err('too-large', 'a library file is too large');
+            }
+            total += content.length + path.length;
+            if (total > SESSION_MAX_TOTAL_LENGTH)
+                return err('too-large', 'libraries exceed the size limit');
+            files.push({ path, content });
+        }
+        // meta: opaque passthrough — only known, capped string fields survive.
+        let meta;
+        if (entry.meta !== undefined) {
+            if (!isRecord(entry.meta))
+                return err('invalid-payload', 'library meta must be an object');
+            const version = readString(entry.meta.version);
+            const source = readString(entry.meta.source);
+            if ((version !== undefined && version.length > SESSION_MAX_ID_LENGTH) ||
+                (source !== undefined && source.length > SESSION_MAX_ID_LENGTH)) {
+                return err('too-large', 'library meta is too long');
+            }
+            if (version !== undefined || source !== undefined) {
+                meta = {
+                    ...(version !== undefined ? { version } : {}),
+                    ...(source !== undefined ? { source } : {}),
+                };
+            }
+        }
+        libraries.push({ name, files, ...(meta !== undefined ? { meta } : {}) });
+    }
+    return { libraries };
+}
 /**
  * Validate an untrusted inbound session message against the L1 protocol. Returns
  * the narrowed message or a structured rejection the host can be told about. Shape
@@ -175,6 +342,28 @@ export function validateSessionInbound(data) {
             if (path.length > SESSION_MAX_PATH_LENGTH)
                 return err('too-large', 'path is too long');
             return { ok: true, message: { type: data.type, path } };
+        }
+        case 'setLibraries': {
+            // Declarative FULL-set replace (ADR 0010): validated atomically; the
+            // optional requestId is answered with libraries-ack (the #227 pattern).
+            const result = readSessionLibraries(data.libraries);
+            if ('ok' in result)
+                return result;
+            const requestId = data.requestId === undefined ? undefined : readString(data.requestId);
+            if (data.requestId !== undefined && requestId === undefined) {
+                return err('invalid-payload', 'requestId must be a string');
+            }
+            if (requestId !== undefined && requestId.length > SESSION_MAX_ID_LENGTH) {
+                return err('too-large', 'an id is too long');
+            }
+            return {
+                ok: true,
+                message: {
+                    type: 'setLibraries',
+                    libraries: result.libraries,
+                    ...(requestId !== undefined ? { requestId } : {}),
+                },
+            };
         }
         case 'render': {
             // Full render (#219): $preview = false, render-quality geometry. The
@@ -288,6 +477,14 @@ export function sessionArtifact(requestId, resolved) {
             bytes: resolved.bytes,
         }
         : { protocolVersion: SESSION_PROTOCOL_VERSION, type: 'artifact', requestId, available: false };
+}
+export function sessionLibrariesAck(requestId, sourceRevision) {
+    return {
+        protocolVersion: SESSION_PROTOCOL_VERSION,
+        type: 'libraries-ack',
+        requestId,
+        sourceRevision,
+    };
 }
 export function sessionProjectAck(requestId, sourceRevision) {
     return {

@@ -24,6 +24,7 @@ import {
   type SessionArtifactReply,
   type SessionExportFormat,
   type SessionInbound,
+  type SessionLibrary,
   type SessionOutbound,
 } from './sessionProtocol';
 
@@ -126,6 +127,17 @@ export class SessionPanel {
   private bootWaiters: BootWaiter[] = [];
   /** The project to (re)push on every `ready` — re-driven after a webview reload. */
   private currentProject?: { files: ProjectFile[]; entryPoint?: string };
+  /** The runtime user-library set (upstream #195) — session-lifetime state,
+   *  re-pushed BEFORE the project on every `ready` (a reload wipes the
+   *  engine). Static so it survives panel teardown/reopen. */
+  private static currentLibraries: SessionLibrary[] = [];
+  /** Whether the live session advertised `setLibraries` (feature detection —
+   *  an older vendored artifact rejects the command as unknown-type). */
+  private librariesSupported = false;
+  private librariesWarnedUnsupported = false;
+  /** Whether THIS engine instance holds a non-empty runtime set (reset on
+   *  `ready` — a reload starts a fresh, library-less engine). */
+  private pushedNonEmptyLibraries = false;
   /** The in-flight compile awaiting its terminal result, if any. */
   private compileWaiter?: CompileWaiter;
   /** The in-flight export awaiting its terminal result + bytes, if any. */
@@ -156,6 +168,39 @@ export class SessionPanel {
   /** Whether a session panel currently exists. */
   static hasPanel(): boolean {
     return SessionPanel.current !== undefined;
+  }
+
+  /** Replace the runtime user-library set (upstream #195). Session-lifetime:
+   *  applies to the live session now (if any) and re-pushes on every future
+   *  `ready`/boot. The already-previewed project recompiles session-side. */
+  static setLibraries(libraries: SessionLibrary[]): void {
+    SessionPanel.currentLibraries = libraries;
+    const panel = SessionPanel.current;
+    if (panel && panel.live) panel.sendLibraries();
+  }
+
+  private sendLibraries(): void {
+    const libraries = SessionPanel.currentLibraries;
+    // The contract is declarative REPLACE: an empty set must still be pushed
+    // when this engine holds a previous non-empty one, or removing the last
+    // library path would leave the session serving stale libraries forever.
+    if (libraries.length === 0 && !this.pushedNonEmptyLibraries) return;
+    if (!this.librariesSupported) {
+      if (libraries.length > 0 && !this.librariesWarnedUnsupported) {
+        this.librariesWarnedUnsupported = true;
+        void vscode.window.showWarningMessage(
+          'openscadWeb.libraryPaths is set, but the bundled session artifact predates ' +
+            'library support — user libraries are unavailable until the artifact is updated.',
+        );
+      }
+      return;
+    }
+    this.pushedNonEmptyLibraries = libraries.length > 0;
+    this.send({
+      type: 'setLibraries',
+      libraries,
+      requestId: `libs-${++this.requestSeq}`,
+    });
   }
 
   /**
@@ -439,6 +484,8 @@ export class SessionPanel {
           return; // version skew — do not drive the session.
         }
         this.live = true;
+        this.librariesSupported = msg.capabilities.includes('setLibraries');
+        this.pushedNonEmptyLibraries = false; // fresh engine holds no libraries
         this.settleBoot({ ready: true, protocolVersion: msg.protocolVersion });
         // A webview reload re-fires `ready` with a fresh, empty engine; re-push the
         // current project so it recompiles (first `ready` has no project yet → no-op).
@@ -456,6 +503,9 @@ export class SessionPanel {
           ok: false,
           error: 'the session reloaded during the export — try again',
         });
+        // Libraries BEFORE the project (ADR 0010 order): a fresh engine has
+        // neither; the project push then compiles with them already in place.
+        this.sendLibraries();
         this.redrive();
         break;
       case 'operation-result': {
@@ -577,7 +627,14 @@ export class SessionPanel {
       case 'error':
         // A protocol-level error during boot (e.g. malformed handshake). Per-project
         // compile errors arrive as `operation-result`, not here. `settleBoot` is
-        // once-only, so a post-boot protocol error is harmlessly ignored.
+        // once-only; a POST-boot protocol error (a rejected setLibraries payload,
+        // an invalid push) is surfaced as a toast — the wire carries no
+        // correlation for it, and silence used to read as success.
+        if (this.live) {
+          void vscode.window.showWarningMessage(
+            `OpenSCAD session rejected a message: ${msg.code}: ${msg.reason}`,
+          );
+        }
         this.settleBoot({ error: `${msg.code}: ${msg.reason}` });
         break;
     }

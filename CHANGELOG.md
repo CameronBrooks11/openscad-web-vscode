@@ -5,6 +5,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **User library paths** (openscad-web#195 / ADR 0010, vendored v0.4.0): the
+  new `openscadWeb.libraryPaths` setting (OPENSCADPATH-style directories,
+  absolute or workspace-relative). Each top-level directory under a path is
+  one library — `use <DirName/file.scad>` — pushed to the session as
+  individually validated files (text as UTF-8-checked content, the rest as
+  bytes; oversized/invalid entries warn and skip). A user library fully
+  shadows the bundled one of the same name; the set re-pushes automatically
+  on webview reloads (before the project) and re-syncs on setting changes,
+  re-running the active preview so diagnostics track the new set. If the
+  vendored session artifact predates library support, the setting warns once
+  instead of failing silently.
+
 ## [0.2.3] - 2026-07-03
 
 ### Changed

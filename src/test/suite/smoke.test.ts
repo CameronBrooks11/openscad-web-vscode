@@ -157,4 +157,49 @@ describe('OpenSCAD Web Session — EDH boot', () => {
     assert.strictEqual(rendered.artifact?.format, 'stl', 'no STL from the render-quality export');
     assert.ok(rendered.bytes!.byteLength > 0, 'render-quality STL is empty');
   });
+
+  // Runtime user library (openscad-web#195 / v0.4.0): the full plumbing —
+  // panel session-lifetime state → setLibraries wire push → runtime registry →
+  // per-job symlink — through the REAL webview channel and WASM engine.
+  it('resolves a user library, and clearing the set really clears it', async function () {
+    this.timeout(120_000);
+
+    const ext = vscode.extensions.getExtension<ExtensionApi>('cameronbrooks11.openscad-web-vscode');
+    assert.ok(ext, 'extension not found by id');
+    const api = await ext.activate();
+
+    api.setSessionLibraries([
+      {
+        name: 'FixtureLib',
+        files: [{ path: 'util.scad', content: 'module fixture_unit() cube([3, 3, 3]);' }],
+      },
+    ]);
+    const withLib = await api.compileSession(
+      [{ path: '/home/main.scad', content: 'use <FixtureLib/util.scad>\nfixture_unit();' }],
+      '/home/main.scad',
+    );
+    assert.strictEqual(
+      withLib.compiled,
+      true,
+      `user-library compile failed: ${withLib.error ?? '(no terminal outcome)'}`,
+    );
+
+    // Clearing is a real declarative replace: the same project must now FAIL
+    // (the guard against the stale-libraries bug where an empty set was never
+    // pushed). The clear triggers a session-side recompile of the current
+    // project; our fresh push then observes the library-less engine.
+    api.setSessionLibraries([]);
+    const withoutLib = await api.compileSession(
+      [{ path: '/home/main2.scad', content: 'use <FixtureLib/util.scad>\nfixture_unit();' }],
+      '/home/main2.scad',
+    );
+    assert.strictEqual(withoutLib.compiled, false, 'cleared libraries still resolved');
+
+    // Leave a clean, library-free compiled state for any later suite.
+    const plain = await api.compileSession(
+      [{ path: '/home/main3.scad', content: 'cube([2, 2, 2]);' }],
+      '/home/main3.scad',
+    );
+    assert.strictEqual(plain.compiled, true);
+  });
 });

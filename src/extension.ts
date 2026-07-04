@@ -8,7 +8,8 @@ import {
 } from './sessionPanel';
 import { readFixtureOff } from './viewerArtifact';
 import { NAMED_VIEWS, type NamedView } from './protocol';
-import type { ProjectFile, SessionExportFormat } from './sessionProtocol';
+import type { ProjectFile, SessionExportFormat, SessionLibrary } from './sessionProtocol';
+import { walkLibraryPaths } from './scad/libraryWalker';
 import { ScadDiagnostics } from './diagnostics';
 import { CompileTriggerController } from './compileTrigger';
 import { isPreviewableScad, runScadPreview } from './scadPreview';
@@ -24,6 +25,8 @@ export interface ExtensionApi {
   bootSession(): Promise<BootOutcome>;
   /** Push a project to the session and await the terminal compile outcome (P3). */
   compileSession(files: ProjectFile[], entryPoint?: string): Promise<CompileOutcome>;
+  /** Replace the session's runtime user-library set directly (EDH tests). */
+  setSessionLibraries(libraries: SessionLibrary[]): void;
   /** Export the current preview and fetch the exact bytes (P6). `quality:
    *  'render'` runs a full ($preview=false) render first (#219). */
   exportSession(
@@ -36,6 +39,27 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   const showFixture = () =>
     ViewerPanel.show(context, readFixtureOff(context.extensionUri), 'fixture cube');
   const showOff = (offText: string, title: string) => ViewerPanel.show(context, offText, title);
+
+  // User libraries (openscad-web#195): walk `openscadWeb.libraryPaths` once
+  // before the first preview and again on setting changes; the panel owns the
+  // session-lifetime set (re-pushed before the project on every `ready`).
+  let librariesSyncPromise: Promise<void> | undefined;
+  const syncLibraries = async (): Promise<void> => {
+    const configured = vscode.workspace
+      .getConfiguration('openscadWeb')
+      .get<string[]>('libraryPaths', []);
+    if (configured.length === 0) {
+      SessionPanel.setLibraries([]);
+      return;
+    }
+    const { libraries, warnings } = await walkLibraryPaths(configured);
+    if (warnings.length > 0) {
+      void vscode.window.showWarningMessage(
+        `OpenSCAD libraries: ${warnings.slice(0, 3).join('; ')}${warnings.length > 3 ? ` (+${warnings.length - 3} more)` : ''}`,
+      );
+    }
+    SessionPanel.setLibraries(libraries);
+  };
 
   // P4: compiler markers as squiggles + the save/watcher re-compile loop. The
   // triggers re-run the same quiet preview flow and re-track, so the watched
@@ -74,8 +98,25 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         void vscode.window.showWarningMessage('Open or select a saved .scad file to preview.');
         return;
       }
+      // Share one in-flight walk: a second preview during a slow first walk
+      // must WAIT, not race ahead and compile library-less (stale squiggles).
+      librariesSyncPromise ??= syncLibraries();
+      await librariesSyncPromise;
       const preview = await runScadPreview(context, diagnostics, entry, { quiet: false });
       if (preview) triggers.track(preview);
+    }),
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+      if (!e.affectsConfiguration('openscadWeb.libraryPaths')) return;
+      librariesSyncPromise = syncLibraries();
+      await librariesSyncPromise;
+      // Re-run the active preview so diagnostics track the new library set
+      // (the session recompiles on its own for the viewer; this re-push keeps
+      // the walker closure + published markers in sync too).
+      const active = triggers.activePreview;
+      if (active && SessionPanel.hasPanel()) {
+        const preview = await runScadPreview(context, diagnostics, active.entry, { quiet: true });
+        if (preview) triggers.track(preview);
+      }
     }),
     vscode.commands.registerCommand('openscadWebViewer.exportScad', async () => {
       if (!SessionPanel.hasPanel()) {
@@ -176,6 +217,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
     bootSession: () => SessionPanel.boot(context),
     compileSession: (files, entryPoint) => SessionPanel.compile(context, files, entryPoint),
     exportSession: (format, quality) => SessionPanel.exportArtifact(format, quality),
+    setSessionLibraries: (libraries) => SessionPanel.setLibraries(libraries),
   };
 }
 
