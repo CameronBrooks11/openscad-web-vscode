@@ -45,6 +45,14 @@
     "configuration": {
       "title": "OpenSCAD Web Viewer",
       "properties": {
+        "openscadWeb.libraryPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "OPENSCADPATH-style user library directories (absolute, or relative to the first workspace folder). Each **top-level directory** under a path is one library: `use <DirName/file.scad>`. A user library fully shadows a bundled one of the same name."
+        },
         "openscadWeb.compileTrigger": {
           "type": "string",
           "enum": [

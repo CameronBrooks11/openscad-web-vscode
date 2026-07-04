@@ -16,8 +16,12 @@ export declare const SESSION_MAX_TOTAL_LENGTH: number;
 export declare const SESSION_MAX_PATH_LENGTH = 4096;
 /** Cap for opaque ids (`artifactId` is a v4 UUID, `requestId` host-chosen). */
 export declare const SESSION_MAX_ID_LENGTH = 256;
+/** Library-name rule (ADR 0010): the name becomes a ROOT SYMLINK verbatim, so
+ *  it must be a single safe segment — and never `.`/`..` or a reserved mount. */
+export declare const SESSION_LIBRARY_NAME_RE: RegExp;
+export declare const SESSION_RESERVED_LIBRARY_NAMES: Set<string>;
 /** The inbound command types, advertised in `ready` so a host can feature-detect. */
-export declare const SESSION_COMMANDS: readonly ["setProject", "updateFile", "removeFile", "setEntryPoint", "render", "export", "getArtifact", "cancel", "dispose"];
+export declare const SESSION_COMMANDS: readonly ["setProject", "updateFile", "removeFile", "setEntryPoint", "setLibraries", "render", "export", "getArtifact", "cancel", "dispose"];
 /** The export formats a host may request (#216) — the app's own format set.
  *  3D: stl/off/glb/3mf; 2D: svg/dxf. The session exports the CURRENT model's
  *  dimensionality; a mismatched request (e.g. `svg` for a 3D model) terminates
@@ -43,6 +47,10 @@ export type SessionInbound = {
     type: 'setEntryPoint';
     path: string;
 } | {
+    type: 'setLibraries';
+    libraries: SessionLibrary[];
+    requestId?: string;
+} | {
     type: 'render';
     requestId?: string;
 } | {
@@ -58,6 +66,26 @@ export type SessionInbound = {
     requestId?: string;
 } | {
     type: 'dispose';
+};
+/** One runtime user library (ADR 0010 / #195): identity is the `use <Name/…>`
+ *  token; files are RELATIVE paths inside the library; `meta` is opaque
+ *  passthrough (a future library manager's version/source — no semantics). */
+export type SessionLibraryFile = {
+    path: string;
+    content: string;
+    bytes?: never;
+} | {
+    path: string;
+    bytes: Uint8Array;
+    content?: never;
+};
+export type SessionLibrary = {
+    name: string;
+    files: SessionLibraryFile[];
+    meta?: {
+        version?: string;
+        source?: string;
+    };
 };
 export type SessionValidation = {
     ok: true;
@@ -126,6 +154,16 @@ export type SessionProjectAck = {
     requestId: string;
     sourceRevision: number;
 };
+/** The reply to a `setLibraries` that carried a `requestId` (ADR 0010): echoes
+ *  the id with the revision the set applied at — same semantics as
+ *  `project-ack`, so hosts correlate the resulting recompile exactly. */
+export type SessionLibrariesAck = {
+    protocolVersion: number;
+    type: 'libraries-ack';
+    requestId: string;
+    sourceRevision: number;
+};
+export declare function sessionLibrariesAck(requestId: string, sourceRevision: number): SessionLibrariesAck;
 export declare function sessionProjectAck(requestId: string, sourceRevision: number): SessionProjectAck;
 /** A protocol-level rejection of an inbound message (validation failure). */
 export declare function sessionError(code: ProtocolErrorCode | string, reason: string): {

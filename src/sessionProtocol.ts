@@ -28,6 +28,33 @@ export type ProjectFile =
   | { path: string; content: string; bytes?: never }
   | { path: string; bytes: Uint8Array; content?: never };
 
+/** One runtime user library (upstream #195 / ADR 0010): identity is the
+ *  `use <Name/…>` token (single safe segment); files are RELATIVE paths inside
+ *  the library; `meta` is opaque passthrough for a future library manager. */
+export type SessionLibraryFile =
+  | { path: string; content: string; bytes?: never }
+  | { path: string; bytes: Uint8Array; content?: never };
+export type SessionLibrary = {
+  name: string;
+  files: SessionLibraryFile[];
+  meta?: { version?: string; source?: string };
+};
+
+/** Mirror of the session's library-name rule: it becomes a root symlink
+ *  verbatim, so single safe segment, never `.`/`..` or a reserved mount. */
+export const SESSION_LIBRARY_NAME_RE = /^[A-Za-z0-9._-]+$/;
+export const SESSION_RESERVED_LIBRARY_NAMES = new Set([
+  'fonts',
+  'home',
+  'tmp',
+  'libraries',
+  'locale',
+  'dev',
+  'proc',
+  '.',
+  '..',
+]);
+
 /** The export formats a host may request (protocol v2, upstream #216). */
 export const SESSION_EXPORT_FORMATS = ['stl', 'off', 'glb', '3mf', 'svg', 'dxf'] as const;
 export type SessionExportFormat = (typeof SESSION_EXPORT_FORMATS)[number];
@@ -38,6 +65,7 @@ export type SessionInbound =
   | { type: 'updateFile'; path: string; content: string }
   | { type: 'removeFile'; path: string }
   | { type: 'setEntryPoint'; path: string }
+  | { type: 'setLibraries'; libraries: SessionLibrary[]; requestId?: string }
   | { type: 'render'; requestId?: string }
   | { type: 'export'; format: SessionExportFormat; requestId?: string }
   | { type: 'getArtifact'; artifactId: string; requestId: string }
@@ -130,10 +158,22 @@ export type SessionProjectAck = {
   sourceRevision: number;
 };
 
+/** The reply to a `setLibraries` that carried a requestId (upstream #195):
+ *  the revision the set applied at. A validated set always applies, so the
+ *  revision always advances; validation failures surface only as an
+ *  uncorrelated `error` — treat a missing ack as a host bug. */
+export type SessionLibrariesAck = {
+  type: 'libraries-ack';
+  protocolVersion: number;
+  requestId: string;
+  sourceRevision: number;
+};
+
 /** Session → host. The outbound subset the extension reacts to. */
 export type SessionOutbound =
   | { type: 'ready'; protocolVersion: number; capabilities: string[] }
   | SessionProjectAck
+  | SessionLibrariesAck
   | { type: 'operation-result'; protocolVersion: number; result: OperationResult }
   | SessionArtifactReply
   | { type: 'error'; protocolVersion: number; code: string; reason: string };

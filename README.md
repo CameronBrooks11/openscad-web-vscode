@@ -17,8 +17,9 @@ session engine built in [**openscad-web**](https://github.com/CameronBrooks11/op
 > out), **compiler errors show as squiggles** in the Problems panel, the model
 > **exports to STL/3MF/GLB/OFF** (2D: SVG/DXF) from the preview, and relative
 > `import()`/`surface()` **assets are pushed with the project** (missing ones get
-> a diagnostic). User library paths (OPENSCADPATH) remain — tracked by epic
-> [#8](https://github.com/CameronBrooks11/openscad-web-vscode/issues/8).
+> a diagnostic), and **user library directories** are supported via the
+> `openscadWeb.libraryPaths` setting (each top-level directory is a library;
+> a user library shadows the bundled one of the same name).
 
 ## Install
 

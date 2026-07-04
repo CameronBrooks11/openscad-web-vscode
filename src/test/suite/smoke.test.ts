@@ -149,6 +149,28 @@ describe('OpenSCAD Web Session — EDH boot', () => {
     assert.ok(exported.bytes instanceof Uint8Array, 'bytes did not arrive as a Uint8Array');
     assert.ok(exported.bytes.byteLength > 0, 'exported STL is empty');
 
+    // Runtime user library (openscad-web#195 / v0.4.0): set the session
+    // libraries through the panel's session-lifetime state, then compile a
+    // project that resolves `use <FixtureLib/…>` — the full plumbing (state →
+    // setLibraries wire push → runtime registry → per-job symlink) through the
+    // REAL webview channel and WASM engine.
+    api.setSessionLibraries([
+      {
+        name: 'FixtureLib',
+        files: [{ path: 'util.scad', content: 'module fixture_unit() cube([3, 3, 3]);' }],
+      },
+    ]);
+    const withLib = await api.compileSession(
+      [{ path: '/home/main.scad', content: 'use <FixtureLib/util.scad>\nfixture_unit();' }],
+      '/home/main.scad',
+    );
+    assert.strictEqual(
+      withLib.compiled,
+      true,
+      `user-library compile failed: ${withLib.error ?? '(no terminal outcome)'}`,
+    );
+    api.setSessionLibraries([]); // leave no library state for later tests
+
     // Render-quality export (#219 / openscad-web v0.3.3): a full $preview=false
     // render runs in the session first, then the conversion — end to end over
     // the real webview channel.
