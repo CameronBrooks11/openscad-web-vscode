@@ -149,11 +149,25 @@ describe('OpenSCAD Web Session — EDH boot', () => {
     assert.ok(exported.bytes instanceof Uint8Array, 'bytes did not arrive as a Uint8Array');
     assert.ok(exported.bytes.byteLength > 0, 'exported STL is empty');
 
-    // Runtime user library (openscad-web#195 / v0.4.0): set the session
-    // libraries through the panel's session-lifetime state, then compile a
-    // project that resolves `use <FixtureLib/…>` — the full plumbing (state →
-    // setLibraries wire push → runtime registry → per-job symlink) through the
-    // REAL webview channel and WASM engine.
+    // Render-quality export (#219 / openscad-web v0.3.3): a full $preview=false
+    // render runs in the session first, then the conversion — end to end over
+    // the real webview channel.
+    const rendered = await api.exportSession('stl', 'render');
+    assert.strictEqual(rendered.ok, true, `render-quality export failed: ${rendered.error}`);
+    assert.strictEqual(rendered.artifact?.format, 'stl', 'no STL from the render-quality export');
+    assert.ok(rendered.bytes!.byteLength > 0, 'render-quality STL is empty');
+  });
+
+  // Runtime user library (openscad-web#195 / v0.4.0): the full plumbing —
+  // panel session-lifetime state → setLibraries wire push → runtime registry →
+  // per-job symlink — through the REAL webview channel and WASM engine.
+  it('resolves a user library, and clearing the set really clears it', async function () {
+    this.timeout(120_000);
+
+    const ext = vscode.extensions.getExtension<ExtensionApi>('cameronbrooks11.openscad-web-vscode');
+    assert.ok(ext, 'extension not found by id');
+    const api = await ext.activate();
+
     api.setSessionLibraries([
       {
         name: 'FixtureLib',
@@ -169,14 +183,23 @@ describe('OpenSCAD Web Session — EDH boot', () => {
       true,
       `user-library compile failed: ${withLib.error ?? '(no terminal outcome)'}`,
     );
-    api.setSessionLibraries([]); // leave no library state for later tests
 
-    // Render-quality export (#219 / openscad-web v0.3.3): a full $preview=false
-    // render runs in the session first, then the conversion — end to end over
-    // the real webview channel.
-    const rendered = await api.exportSession('stl', 'render');
-    assert.strictEqual(rendered.ok, true, `render-quality export failed: ${rendered.error}`);
-    assert.strictEqual(rendered.artifact?.format, 'stl', 'no STL from the render-quality export');
-    assert.ok(rendered.bytes!.byteLength > 0, 'render-quality STL is empty');
+    // Clearing is a real declarative replace: the same project must now FAIL
+    // (the guard against the stale-libraries bug where an empty set was never
+    // pushed). The clear triggers a session-side recompile of the current
+    // project; our fresh push then observes the library-less engine.
+    api.setSessionLibraries([]);
+    const withoutLib = await api.compileSession(
+      [{ path: '/home/main2.scad', content: 'use <FixtureLib/util.scad>\nfixture_unit();' }],
+      '/home/main2.scad',
+    );
+    assert.strictEqual(withoutLib.compiled, false, 'cleared libraries still resolved');
+
+    // Leave a clean, library-free compiled state for any later suite.
+    const plain = await api.compileSession(
+      [{ path: '/home/main3.scad', content: 'cube([2, 2, 2]);' }],
+      '/home/main3.scad',
+    );
+    assert.strictEqual(plain.compiled, true);
   });
 });

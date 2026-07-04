@@ -18,8 +18,9 @@ session engine built in [**openscad-web**](https://github.com/CameronBrooks11/op
 > **exports to STL/3MF/GLB/OFF** (2D: SVG/DXF) from the preview, and relative
 > `import()`/`surface()` **assets are pushed with the project** (missing ones get
 > a diagnostic), and **user library directories** are supported via the
-> `openscadWeb.libraryPaths` setting (each top-level directory is a library;
-> a user library shadows the bundled one of the same name).
+> `openscadWeb.libraryPaths` setting (each top-level directory is a library; a
+> user library shadows the bundled one of the same name for `Name/...`
+> resolution — whole-library, no per-file merge).
 
 ## Install
 

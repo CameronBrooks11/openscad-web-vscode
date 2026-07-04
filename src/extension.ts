@@ -43,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
   // User libraries (openscad-web#195): walk `openscadWeb.libraryPaths` once
   // before the first preview and again on setting changes; the panel owns the
   // session-lifetime set (re-pushed before the project on every `ready`).
-  let librariesSynced = false;
+  let librariesSyncPromise: Promise<void> | undefined;
   const syncLibraries = async (): Promise<void> => {
     const configured = vscode.workspace
       .getConfiguration('openscadWeb')
@@ -98,17 +98,17 @@ export function activate(context: vscode.ExtensionContext): ExtensionApi {
         void vscode.window.showWarningMessage('Open or select a saved .scad file to preview.');
         return;
       }
-      if (!librariesSynced) {
-        librariesSynced = true;
-        await syncLibraries();
-      }
+      // Share one in-flight walk: a second preview during a slow first walk
+      // must WAIT, not race ahead and compile library-less (stale squiggles).
+      librariesSyncPromise ??= syncLibraries();
+      await librariesSyncPromise;
       const preview = await runScadPreview(context, diagnostics, entry, { quiet: false });
       if (preview) triggers.track(preview);
     }),
     vscode.workspace.onDidChangeConfiguration(async (e) => {
       if (!e.affectsConfiguration('openscadWeb.libraryPaths')) return;
-      librariesSynced = true;
-      await syncLibraries();
+      librariesSyncPromise = syncLibraries();
+      await librariesSyncPromise;
       // Re-run the active preview so diagnostics track the new library set
       // (the session recompiles on its own for the viewer; this re-push keeps
       // the walker closure + published markers in sync too).

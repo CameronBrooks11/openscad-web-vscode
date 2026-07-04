@@ -11,6 +11,7 @@
 // same payload — this walker stays for plain directories; a manager
 // integration would only add a second source.
 
+import * as os from 'node:os';
 import * as vscode from 'vscode';
 import {
   SESSION_LIBRARY_NAME_RE,
@@ -23,6 +24,7 @@ import {
  *  beats an atomic wire rejection there. */
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
+const MAX_TOTAL_FILES = 2048; // wire cap across ALL libraries — skip-and-warn here
 
 const TEXT_EXTENSIONS = new Set([
   'scad',
@@ -49,6 +51,9 @@ export interface LibraryWalkResult {
 /** Resolve a configured path against the workspace (absolute paths pass
  *  through; relative ones resolve against the first workspace folder). */
 export function resolveLibraryRoot(configured: string): vscode.Uri | undefined {
+  if (configured === '~' || configured.startsWith('~/')) {
+    return vscode.Uri.file(`${os.homedir()}${configured.slice(1)}`);
+  }
   if (configured.startsWith('/') || /^[A-Za-z]:[/\\]/.test(configured)) {
     return vscode.Uri.file(configured);
   }
@@ -61,6 +66,7 @@ export async function walkLibraryPaths(configured: string[]): Promise<LibraryWal
   const libraries = new Map<string, SessionLibrary>();
   const warnings: string[] = [];
   let total = 0;
+  const fileBudget = { remaining: MAX_TOTAL_FILES, warned: false };
 
   for (const entry of configured) {
     const root = resolveLibraryRoot(entry);
@@ -76,7 +82,15 @@ export async function walkLibraryPaths(configured: string[]): Promise<LibraryWal
       continue;
     }
     for (const [name, type] of children) {
-      if (type !== vscode.FileType.Directory) continue; // libraries are dirs
+      if ((type & vscode.FileType.Directory) === 0) continue; // libraries are dirs
+      if ((type & vscode.FileType.SymbolicLink) !== 0) {
+        // Not followed: a symlink cycle would recurse forever, and vscode.fs
+        // gives no realpath to guard with. Warn — a symlinked library layout
+        // is common enough that silence would read as a broken feature.
+        warnings.push(`library '${name}' skipped: symbolic link (not followed)`);
+        continue;
+      }
+      if (name.startsWith('.')) continue; // .git at a repo root is not a library
       if (!SESSION_LIBRARY_NAME_RE.test(name) || SESSION_RESERVED_LIBRARY_NAMES.has(name)) {
         warnings.push(`library '${name}' skipped: not a safe library name`);
         continue;
@@ -90,9 +104,10 @@ export async function walkLibraryPaths(configured: string[]): Promise<LibraryWal
         vscode.Uri.joinPath(root, name),
         '',
         files,
-        total,
+        total + name.length, // the wire counts names toward the budget too
         warnings,
         name,
+        fileBudget,
       );
       total = collected;
       if (files.length > 0) libraries.set(name, { name, files });
@@ -108,6 +123,7 @@ async function collectFiles(
   total: number,
   warnings: string[],
   libName: string,
+  fileBudget: { remaining: number; warned: boolean },
 ): Promise<number> {
   let entries: [string, vscode.FileType][];
   try {
@@ -120,10 +136,19 @@ async function collectFiles(
     const childRel = rel ? `${rel}/${name}` : name;
     const child = vscode.Uri.joinPath(dir, name);
     if (type === vscode.FileType.Directory) {
-      total = await collectFiles(child, childRel, out, total, warnings, libName);
+      total = await collectFiles(child, childRel, out, total, warnings, libName, fileBudget);
       continue;
     }
     if (type !== vscode.FileType.File) continue; // symlinks etc. are skipped
+    if (fileBudget.remaining <= 0) {
+      if (!fileBudget.warned) {
+        fileBudget.warned = true;
+        warnings.push(
+          `library file limit reached (${MAX_TOTAL_FILES} across all libraries) — remaining files skipped`,
+        );
+      }
+      continue;
+    }
     let bytes: Uint8Array;
     try {
       bytes = await vscode.workspace.fs.readFile(child);
@@ -131,7 +156,10 @@ async function collectFiles(
       warnings.push(`${libName}/${childRel} skipped: unreadable`);
       continue;
     }
-    if (bytes.byteLength > MAX_FILE_BYTES || total + bytes.byteLength > MAX_TOTAL_BYTES) {
+    // The wire budget counts payload + path lengths; UTF-8 byteLength for text
+    // over-counts vs the wire's UTF-16 units — conservative by design.
+    const cost = bytes.byteLength + childRel.length;
+    if (bytes.byteLength > MAX_FILE_BYTES || total + cost > MAX_TOTAL_BYTES) {
       warnings.push(`${libName}/${childRel} skipped: over the size budget`);
       continue;
     }
@@ -152,7 +180,8 @@ async function collectFiles(
     } else {
       out.push({ path: childRel, bytes });
     }
-    total += bytes.byteLength;
+    fileBudget.remaining -= 1;
+    total += cost;
   }
   return total;
 }
