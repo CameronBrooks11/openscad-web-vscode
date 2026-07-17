@@ -17,6 +17,12 @@ updates:
       interval: 'weekly'
     commit-message:
       prefix: 'chore(deps): '
+    ignore:
+      # typescript-eslint (through 8.64.0) peer-caps typescript at <6.1.0, so a
+      # major bump to the 7.x line breaks `npm ci` for the whole dev group.
+      # Hold TS on 6.x until typescript-eslint supports 7.x; minor/patch still flow.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
     groups:
       npm-production:
         dependency-type: 'production'
