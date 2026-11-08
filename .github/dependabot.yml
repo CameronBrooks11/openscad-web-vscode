@@ -23,6 +23,9 @@ updates:
       # Hold TS on 6.x until typescript-eslint supports 7.x; minor/patch still flow.
       - dependency-name: 'typescript'
         update-types: ['version-update:semver-major']
+      # vsce refuses to package when @types/vscode is newer than engines.vscode.
+      # Move it only together with engines.vscode.
+      - dependency-name: '@types/vscode'
     groups:
       npm-production:
         dependency-type: 'production'
